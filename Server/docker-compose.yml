@@ -1,6 +1,9 @@
 # SPDX-FileCopyrightText: 2025 Contributors to the CitrineOS Project
 #
 # SPDX-License-Identifier: Apache-2.0
+
+x-hasura-jwt-secret: &HASURA_GRAPHQL_JWT_SECRET '{"type": "${HASURA_GRAPHQL_ALGO:-RS256}", "jwk_url": "${HASURA_GRAPHQL_JWK_URL:-http://keycloak:8180/auth/realms/patterm/protocol/openid-connect/certs}"}'
+
 services:
   amqp-broker:
     image: rabbitmq:3-management
@@ -181,6 +184,8 @@ services:
       HASURA_GRAPHQL_DEV_MODE: 'true'
       HASURA_GRAPHQL_ENABLED_LOG_TYPES: startup, http-log, webhook-log, websocket-log, query-log
       HASURA_GRAPHQL_ENABLE_TELEMETRY: 'false'
+      ## JWT authentication with Keycloak
+      HASURA_GRAPHQL_JWT_SECRET: *HASURA_GRAPHQL_JWT_SECRET
       ## uncomment next line to run console offline (i.e load console assets from server instead of CDN)
       # HASURA_GRAPHQL_CONSOLE_ASSETS_DIR: /srv/console-assets
       ## uncomment next line to set an admin secret - warning, without configuration this will cause upstream services to fail
