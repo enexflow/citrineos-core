@@ -1,23 +1,20 @@
 // SPDX-FileCopyrightText: 2025 Contributors to the CitrineOS Project
 //
 // SPDX-License-Identifier: Apache-2.0
-
-import {
-  AbstractMessageSender,
+import type {
+  CircuitBreakerState,
   IMessage,
   IMessageConfirmation,
   IMessageSender,
-  MessageState,
-  OcppError,
   OcppRequest,
   OcppResponse,
   SystemConfig,
-  CircuitBreakerState,
-  CircuitBreaker,
 } from '@citrineos/base';
+import { AbstractMessageSender, CircuitBreaker, MessageState, OcppError } from '@citrineos/base';
 import * as amqplib from 'amqplib';
 import { instanceToPlain } from 'class-transformer';
-import { ILogObj, Logger } from 'tslog';
+import type { ILogObj } from 'tslog';
+import { Logger } from 'tslog';
 
 /**
  * Implementation of a {@link IMessageSender} using RabbitMQ as the underlying transport.
@@ -125,7 +122,7 @@ export class RabbitMqSender extends AbstractMessageSender implements IMessageSen
 
     const exchange = this._config.util.messageBroker.amqp?.exchange as string;
     if (!this._channel) {
-      throw new Error('RabbitMQ is down: cannot unsubscribe.');
+      throw new Error('RabbitMQ is down: cannot publish.');
     }
     const channel = this._channel;
 
@@ -189,9 +186,14 @@ export class RabbitMqSender extends AbstractMessageSender implements IMessageSen
         const connection = await amqplib.connect(url);
         this._connection = connection;
         const channel = await connection.createChannel();
+        const exchange = this._config.util.messageBroker.amqp?.exchange as string;
+        if (exchange) {
+          await channel.assertExchange(exchange, 'headers', { durable: false });
+        }
         channel.on('error', (err) => {
           this._logger.error('AMQP channel error', err);
         });
+        channel.on('close', () => this._handleDisconnect());
         this._setupConnectionListeners();
         this._circuitBreaker.triggerSuccess();
         return channel;
@@ -235,7 +237,11 @@ export class RabbitMqSender extends AbstractMessageSender implements IMessageSen
           reason,
         );
         void this.shutdown();
-        this._startReconnectInterval();
+        if (this._reconnectInterval) {
+          this._logger.info('Clearing reconnect interval as circuit breaker is now CLOSED.');
+          clearInterval(this._reconnectInterval);
+          this._reconnectInterval = undefined;
+        }
         break;
       }
       case 'OPEN': {
@@ -263,6 +269,8 @@ export class RabbitMqSender extends AbstractMessageSender implements IMessageSen
           'Circuit breaker is FAILING. RabbitMQ sender will not send messages until recovery. Reason:',
           reason,
         );
+        this._logger.info('Attempting to start reconnect interval after circuit breaker FAILING.');
+        this._startReconnectInterval();
         break;
       }
       default:

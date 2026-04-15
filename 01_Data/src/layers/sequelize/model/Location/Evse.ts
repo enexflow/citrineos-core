@@ -1,15 +1,35 @@
 // SPDX-FileCopyrightText: 2025 Contributors to the CitrineOS Project
 //
 // SPDX-License-Identifier: Apache-2.0
-
-import { IEvseDto, Namespace } from '@citrineos/base';
-import { BelongsTo, Column, DataType, ForeignKey, HasMany, Table } from 'sequelize-typescript';
-import { ChargingStation } from './ChargingStation';
-import { BaseModelWithTenant } from '../BaseModelWithTenant';
-import { Connector } from './Connector';
+import type {
+  ChargingStationDto,
+  ConnectorDto,
+  EvseDto,
+  TenantDto,
+  ChargingStationCapabilityEnumType,
+  ChargingStationParkingRestrictionEnumType,
+  Point,
+  Image,
+  OcpiEvseStatusEnum,
+} from '@citrineos/base';
+import { DEFAULT_TENANT_ID, Namespace } from '@citrineos/base';
+import {
+  BeforeCreate,
+  BeforeUpdate,
+  BelongsTo,
+  Column,
+  DataType,
+  ForeignKey,
+  HasMany,
+  Model,
+  Table,
+} from 'sequelize-typescript';
+import { Tenant } from '../Tenant.js';
+import { ChargingStation } from './ChargingStation.js';
+import { Connector } from './Connector.js';
 
 @Table
-export class Evse extends BaseModelWithTenant implements IEvseDto {
+export class Evse extends Model implements EvseDto {
   static readonly MODEL_NAME: string = Namespace.Evse;
 
   @ForeignKey(() => ChargingStation)
@@ -34,9 +54,62 @@ export class Evse extends BaseModelWithTenant implements IEvseDto {
   @Column(DataType.BOOLEAN)
   declare removed?: boolean;
 
+  @Column(DataType.JSONB)
+  declare images?: Image[] | null;
+
+  @Column(DataType.STRING(4))
+  declare floorLevel?: string | null;
+
+  @Column(DataType.GEOMETRY('POINT'))
+  declare coordinates?: Point | null;
+
+  @Column(DataType.JSONB)
+  declare parkingRestrictions?: ChargingStationParkingRestrictionEnumType[] | null;
+
+  @Column(DataType.JSONB)
+  declare statusSchedule?:
+    | { period_begin: Date; period_end?: Date | null; status: string }[]
+    | null;
+
+  @Column(DataType.STRING(36))
+  declare ocpiUid?: string | null;
+
+  @Column(DataType.JSONB)
+  declare capabilities?: ChargingStationCapabilityEnumType[] | null;
+
+  @Column(DataType.STRING)
+  declare ocpiStatus?: OcpiEvseStatusEnum | null;
+
   @BelongsTo(() => ChargingStation)
-  declare chargingStation?: ChargingStation;
+  declare chargingStation?: ChargingStationDto;
 
   @HasMany(() => Connector)
-  declare connectors?: Connector[] | null;
+  declare connectors?: ConnectorDto[] | null;
+
+  @ForeignKey(() => Tenant)
+  @Column({
+    type: DataType.INTEGER,
+    allowNull: false,
+    onUpdate: 'CASCADE',
+    onDelete: 'RESTRICT',
+  })
+  declare tenantId: number;
+
+  @BelongsTo(() => Tenant)
+  declare tenant?: TenantDto;
+
+  @BeforeUpdate
+  @BeforeCreate
+  static setDefaultTenant(instance: Evse) {
+    if (instance.tenantId == null) {
+      instance.tenantId = DEFAULT_TENANT_ID;
+    }
+  }
+
+  constructor(...args: any[]) {
+    super(...args);
+    if (this.tenantId == null) {
+      this.tenantId = DEFAULT_TENANT_ID;
+    }
+  }
 }

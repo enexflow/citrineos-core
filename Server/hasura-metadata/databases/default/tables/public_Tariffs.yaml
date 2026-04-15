@@ -11,6 +11,9 @@ object_relationships:
   - name: Tenant
     using:
       foreign_key_constraint_on: tenantId
+  - name: TenantPartner
+    using:
+      foreign_key_constraint_on: tenantPartnerId
 array_relationships:
   - name: MeterValues
     using:
@@ -26,6 +29,20 @@ array_relationships:
         table:
           name: Transactions
           schema: public
+  - name: ConnectorTariffsOcpiPartner
+    using:
+      foreign_key_constraint_on:
+        column: tariffId
+        table:
+          name: ConnectorTariffs
+          schema: public
+  - name: TariffElements
+    using:
+      foreign_key_constraint_on:
+        column: tariffId
+        table:
+          name: TariffElements
+          schema: public
 select_permissions:
   - role: user
     permission:
@@ -33,17 +50,54 @@ select_permissions:
         - currency
         - stationId
         - id
+        - ocpiTariffId
         - tenantId
+        - tenantPartnerId
         - authorizationAmount
         - paymentFee
         - pricePerKwh
         - pricePerMin
         - pricePerSession
         - taxRate
+        - tariffAltText
+        - tariffType
+        - tariffAltUrl
+        - minPrice
+        - maxPrice
+        - energyMix
+        - startDateTime
+        - endDateTime
         - createdAt
         - updatedAt
       filter:
         tenantId:
           _eq: x-hasura-tenant-id
       allow_aggregations: true
-    comment: ""
+insert_permissions:
+  - role: user
+    permission:
+      columns:
+        - currency
+        - stationId
+        - ocpiTariffId
+        - tenantId
+        - tenantPartnerId
+        - authorizationAmount
+        - paymentFee
+        - pricePerKwh
+        - pricePerMin
+        - pricePerSession
+        - taxRate
+        - tariffAltText
+        - tariffType
+        - tariffAltUrl
+        - minPrice
+        - maxPrice
+        - energyMix
+        - startDateTime
+        - endDateTime
+        - createdAt
+        - updatedAt
+      check:
+        tenantId:
+          _eq: x-hasura-tenant-id
