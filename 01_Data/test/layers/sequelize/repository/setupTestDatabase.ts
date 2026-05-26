@@ -8,6 +8,7 @@ import {
   Authorization,
   AuthorizationTenant,
   Tenant,
+  OcpiIntegration,
   TenantPartner,
   VariableAttribute,
   VariableCharacteristics,
@@ -71,6 +72,7 @@ const ALL_MODELS = [
   LocalListVersionAuthorization,
   SendLocalListAuthorization,
   Tenant,
+  OcpiIntegration,
   TenantPartner,
   Boot,
   Component,
@@ -153,8 +155,8 @@ export function setupTestDatabase(): TestDatabase {
   }, 60_000);
 
   afterAll(async () => {
-    await sequelize.close();
-    await container.stop();
+    await sequelize?.close();
+    await container?.stop();
   });
 
   // Expose a cleanup helper tests can call in beforeEach
@@ -162,7 +164,7 @@ export function setupTestDatabase(): TestDatabase {
     await sequelize.query(`
       TRUNCATE TABLE
         "AuthorizationTenants", "Authorizations",
-        "Tenants", "TenantPartners"
+        "Tenants", "TenantPartners", "OcpiIntegrations"
       RESTART IDENTITY CASCADE
     `);
   };
