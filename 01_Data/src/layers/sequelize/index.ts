@@ -67,6 +67,7 @@ export { Reservation } from './model/Reservation.js';
 export { ChargingStationSecurityInfo } from './model/ChargingStationSecurityInfo.js';
 export { ChangeConfiguration } from './model/ChangeConfiguration.js';
 export { Tenant } from './model/Tenant.js';
+export { OcpiIntegration } from './model/OcpiIntegration.js';
 export { TenantPartner } from './model/TenantPartner.js';
 export type { PaginatedParams } from './model/AsyncJob/index.js';
 export { AsyncJobStatus, AsyncJobStatusDTO, AsyncJobRequest } from './model/AsyncJob/index.js';

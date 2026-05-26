@@ -412,6 +412,7 @@ export * from './interfaces/dto/stop.transaction.dto.js';
 export * from './interfaces/dto/subscription.dto.js';
 export * from './interfaces/dto/tariff.dto.js';
 export * from './interfaces/dto/tenant.dto.js';
+export * from './interfaces/dto/ocpi.integration.dto.js';
 export * from './interfaces/dto/tenant.partner.dto.js';
 export * from './interfaces/dto/transaction.dto.js';
 export * from './interfaces/dto/transaction.event.dto.js';

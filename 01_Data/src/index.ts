@@ -51,6 +51,7 @@ export {
   ChargingStationSecurityInfo,
   ChargingStationNetworkProfile,
   Tenant,
+  OcpiIntegration,
   TenantPartner,
   AsyncJobStatus,
   AsyncJobStatusDTO,

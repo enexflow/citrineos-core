@@ -22,5 +22,6 @@ export * from './Tariff/index.js';
 export * from './Tenant.js';
 export * from './TransactionEvent/index.js';
 export * from './VariableMonitoring/index.js';
+export * from './OcpiIntegration.js';
 export * from './TenantPartner.js';
 export * from './AuthorizationTenant.js';

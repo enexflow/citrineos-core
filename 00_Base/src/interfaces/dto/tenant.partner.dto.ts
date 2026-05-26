@@ -3,14 +3,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { z } from 'zod/v4';
+import { OcpiIntegrationSchema } from './ocpi.integration.dto.js';
 import { BaseSchema } from './types/base.dto.js';
-import { PartnerProfileSchema } from './types/ocpi.registration.js';
 
 export const TenantPartnerSchema = BaseSchema.extend({
   id: z.number().int().optional(),
   countryCode: z.string().nullable().optional(),
   partyId: z.string().nullable().optional(),
-  partnerProfileOCPI: PartnerProfileSchema,
+  ocpiIntegrationId: z.number().int().nullable().optional(),
+  ocpiIntegration: OcpiIntegrationSchema.nullable().optional(),
 });
 
 export const TenantPartnerProps = TenantPartnerSchema.keyof().enum;
@@ -20,6 +21,7 @@ export type TenantPartnerDto = z.infer<typeof TenantPartnerSchema>;
 export const TenantPartnerCreateSchema = TenantPartnerSchema.omit({
   id: true,
   tenant: true,
+  ocpiIntegration: true,
   updatedAt: true,
   createdAt: true,
 });

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Contributors to the CitrineOS Project
 //
 // SPDX-License-Identifier: Apache-2.0
-import type { PartnerProfile, TenantDto, TenantPartnerDto } from '@citrineos/base';
+import type { OcpiIntegrationDto, TenantDto, TenantPartnerDto } from '@citrineos/base';
 import { DEFAULT_TENANT_ID } from '@citrineos/base';
 import {
   BeforeCreate,
@@ -15,6 +15,7 @@ import {
   Table,
 } from 'sequelize-typescript';
 import { Authorization } from './Authorization/index.js';
+import { OcpiIntegration } from './OcpiIntegration.js';
 import { Tenant } from './Tenant.js';
 
 @Table
@@ -27,8 +28,17 @@ export class TenantPartner extends Model implements TenantPartnerDto {
   @Column(DataType.STRING)
   declare countryCode: string;
 
-  @Column(DataType.JSONB)
-  declare partnerProfileOCPI: PartnerProfile;
+  @ForeignKey(() => OcpiIntegration)
+  @Column({
+    type: DataType.INTEGER,
+    allowNull: true,
+    onUpdate: 'CASCADE',
+    onDelete: 'RESTRICT',
+  })
+  declare ocpiIntegrationId?: number | null;
+
+  @BelongsTo(() => OcpiIntegration)
+  declare ocpiIntegration?: OcpiIntegrationDto | null;
 
   @HasMany(() => Authorization)
   declare authorizations: Authorization[];
