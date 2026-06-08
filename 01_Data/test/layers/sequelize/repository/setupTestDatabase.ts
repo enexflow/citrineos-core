@@ -7,6 +7,7 @@ import {
   Boot,
   Authorization,
   AuthorizationTenant,
+  AuthorizationLocation,
   Tenant,
   TenantPartner,
   VariableAttribute,
@@ -56,6 +57,7 @@ import {
   AsyncJobStatus,
   DeleteCertificateAttempt,
   InstallCertificateAttempt,
+  RoamingPartner,
 } from '../../../../src/layers/sequelize/index.js';
 import { ComponentVariable } from '../../../../src/layers/sequelize/model/DeviceModel/ComponentVariable.js';
 import { Cdr } from '../../../../src/layers/sequelize/model/Cdrs/Cdrs.js';
@@ -65,6 +67,7 @@ import { afterAll, beforeAll } from 'vitest';
 const ALL_MODELS = [
   Authorization,
   AuthorizationTenant,
+  AuthorizationLocation,
   LocalListAuthorization,
   LocalListVersion,
   SendLocalList,
@@ -118,6 +121,7 @@ const ALL_MODELS = [
   Subscription,
   TariffElement,
   Tariff,
+  RoamingPartner,
 ];
 
 export interface TestDatabase {

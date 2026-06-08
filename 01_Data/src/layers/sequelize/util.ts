@@ -59,6 +59,8 @@ import {
   VariableMonitoringStatus,
   VariableStatus,
   AuthorizationTenant,
+  AuthorizationLocation,
+  RoamingPartner,
 } from './index.js';
 
 export class DefaultSequelizeInstance {
@@ -134,7 +136,7 @@ export class DefaultSequelizeInstance {
   }
 
   private static createSequelizeInstance() {
-    return new Sequelize({
+    const sequelize = new Sequelize({
       host: this.config.database.host,
       port: this.config.database.port,
       database: this.config.database.database,
@@ -194,9 +196,13 @@ export class DefaultSequelizeInstance {
         Tenant,
         TenantPartner,
         AuthorizationTenant,
+        AuthorizationLocation,
+        RoamingPartner,
       ],
       pool: this.config.database.pool,
       logging: (_sql: string, _timing?: number) => {},
     });
+
+    return sequelize;
   }
 }

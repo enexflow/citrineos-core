@@ -16,6 +16,7 @@ import {
 } from 'sequelize-typescript';
 import { Authorization } from './Authorization/index.js';
 import { Tenant } from './Tenant.js';
+import { RoamingPartner } from './RoamingPartner.js';
 
 @Table
 export class TenantPartner extends Model implements TenantPartnerDto {
@@ -30,8 +31,14 @@ export class TenantPartner extends Model implements TenantPartnerDto {
   @Column(DataType.JSONB)
   declare partnerProfileOCPI: PartnerProfile;
 
+  @Column({ type: DataType.STRING, allowNull: true })
+  declare awsSecretCertificateArn?: string | null;
+
   @HasMany(() => Authorization)
   declare authorizations: Authorization[];
+
+  @HasMany(() => RoamingPartner, { foreignKey: 'tenantPartnerId' })
+  declare roamingPartners: RoamingPartner[];
 
   @ForeignKey(() => Tenant)
   @Column({

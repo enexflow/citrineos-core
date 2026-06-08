@@ -45,6 +45,7 @@ export {
   StatusNotification,
   Connector,
 } from './model/Location/index.js';
+export { AuthorizationLocation } from './model/AuthorizationLocation.js';
 export { ChargingStationSequence } from './model/ChargingStationSequence/index.js';
 export { MessageInfo } from './model/MessageInfo/index.js';
 export { Tariff } from './model/Tariff/index.js';
@@ -68,6 +69,7 @@ export { ChargingStationSecurityInfo } from './model/ChargingStationSecurityInfo
 export { ChangeConfiguration } from './model/ChangeConfiguration.js';
 export { Tenant } from './model/Tenant.js';
 export { TenantPartner } from './model/TenantPartner.js';
+export { RoamingPartner } from './model/RoamingPartner.js';
 export type { PaginatedParams } from './model/AsyncJob/index.js';
 export { AsyncJobStatus, AsyncJobStatusDTO, AsyncJobRequest } from './model/AsyncJob/index.js';
 export { DeleteCertificateAttempt, InstallCertificateAttempt } from './model/Certificate/index.js';

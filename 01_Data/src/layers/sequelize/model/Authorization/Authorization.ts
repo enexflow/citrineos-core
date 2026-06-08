@@ -21,9 +21,10 @@ import {
   Model,
   Table,
 } from 'sequelize-typescript';
+import { AuthorizationLocation } from '../AuthorizationLocation.js';
 import { AuthorizationTenant } from '../AuthorizationTenant.js';
-
 import { TenantPartner } from '../TenantPartner.js';
+import { RoamingPartner } from '../RoamingPartner.js';
 
 @Table
 export class Authorization extends Model implements AuthorizationDto {
@@ -88,6 +89,9 @@ export class Authorization extends Model implements AuthorizationDto {
   @HasMany(() => AuthorizationTenant, { foreignKey: 'authorizationId', as: 'tenants' })
   declare tenants?: AuthorizationTenant[] | null;
 
+  @HasMany(() => AuthorizationLocation, { foreignKey: 'authorizationId', as: 'locations' })
+  declare locations?: AuthorizationLocation[] | null;
+
   // Reference to another Authorization for groupAuthorization
   @ForeignKey(() => Authorization)
   @Column(DataType.INTEGER)
@@ -109,4 +113,11 @@ export class Authorization extends Model implements AuthorizationDto {
 
   @BelongsTo(() => TenantPartner)
   declare tenantPartner?: TenantPartner | null;
+
+  @ForeignKey(() => RoamingPartner)
+  @Column({ type: DataType.INTEGER, allowNull: true, onUpdate: 'CASCADE', onDelete: 'SET NULL' })
+  declare roamingPartnerId?: number | null;
+
+  @BelongsTo(() => RoamingPartner)
+  declare roamingPartner?: RoamingPartner;
 }

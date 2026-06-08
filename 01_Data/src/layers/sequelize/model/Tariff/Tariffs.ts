@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-import type { TariffDto, TenantDto } from '@citrineos/base';
+import type { ConnectorDto, TariffDto, TenantDto } from '@citrineos/base';
 import { DEFAULT_TENANT_ID, OCPP2_0_1_Namespace } from '@citrineos/base';
 import type { CreationOptional } from 'sequelize';
 import {
@@ -17,6 +17,8 @@ import {
 } from 'sequelize-typescript';
 import { Connector } from '../Location/index.js';
 import { Tenant } from '../Tenant.js';
+import { RoamingPartner } from '../RoamingPartner.js';
+import { TenantPartner } from '../TenantPartner.js';
 
 @Table
 export class Tariff extends Model implements TariffDto {
@@ -39,7 +41,7 @@ export class Tariff extends Model implements TariffDto {
   declare connectorId?: number | null;
 
   @BelongsTo(() => Connector)
-  declare connector?: Connector | null;
+  declare connector?: ConnectorDto | null;
 
   @Column({
     type: DataType.CHAR(3),
@@ -148,6 +150,20 @@ export class Tariff extends Model implements TariffDto {
 
   @BelongsTo(() => Tenant)
   declare tenant?: TenantDto;
+
+  @ForeignKey(() => TenantPartner)
+  @Column({ type: DataType.INTEGER, allowNull: true, onUpdate: 'CASCADE', onDelete: 'SET NULL' })
+  declare tenantPartnerId?: number | null;
+
+  @BelongsTo(() => TenantPartner)
+  declare tenantPartner?: TenantPartner;
+
+  @ForeignKey(() => RoamingPartner)
+  @Column({ type: DataType.INTEGER, allowNull: true, onUpdate: 'CASCADE', onDelete: 'SET NULL' })
+  declare roamingPartnerId?: number | null;
+
+  @BelongsTo(() => RoamingPartner)
+  declare roamingPartner?: RoamingPartner;
 
   @BeforeUpdate
   @BeforeCreate
