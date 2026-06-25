@@ -25,7 +25,8 @@ export default {
   c."ocpiCdrId",
   c."credit",
   c."creditReferenceId",
-  c."lastUpdated"     AS "cdrLastUpdated"
+  c."lastUpdated"     AS "cdrLastUpdated",
+  s."cdrToken"
 FROM "Sessions" s
 FULL OUTER JOIN "Cdrs" c
   ON c."sessionId" = s."ocpiSessionId"

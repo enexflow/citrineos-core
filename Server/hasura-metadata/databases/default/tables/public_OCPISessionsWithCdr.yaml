@@ -43,6 +43,7 @@ select_permissions:
         - credit
         - creditReferenceId
         - cdrLastUpdated
+        - cdrToken
       filter:
         tenantId:
           _eq: x-hasura-tenant-id
