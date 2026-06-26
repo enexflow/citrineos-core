@@ -58,6 +58,7 @@ import {
   Subscription,
   Tariff,
   Tenant,
+  TenantPartner,
   TransactionEvent,
   VariableCharacteristics,
 } from '../layers/sequelize/index.js';
@@ -511,4 +512,12 @@ export interface IChangeConfigurationRepository extends CrudRepository<ChangeCon
 
 export interface ITenantRepository extends CrudRepository<Tenant> {
   createTenant(tenant: Tenant): Promise<Tenant>;
+}
+
+export interface ITenantPartnerRepository extends CrudRepository<TenantPartner> {
+  getHubPartner(
+    tenantId: number,
+    countryCode: string,
+    partyIds: string[],
+  ): Promise<TenantPartner | undefined>;
 }
