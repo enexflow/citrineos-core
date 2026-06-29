@@ -11,6 +11,7 @@ import {
 import type { ILocationRepository, ITenantPartnerRepository } from '@citrineos/data';
 import type { ILogObj } from 'tslog';
 import { Logger } from 'tslog';
+import { OidcTokenProvider } from '../authorization/index.js';
 import type {
   RealTimeAuthorizationRequestBody,
   RealTimeAuthorizationResponse,
@@ -29,6 +30,7 @@ export class UnknownTokenOcpiAuthorizer {
   private readonly _tenantPartnerRepository: ITenantPartnerRepository;
   private readonly _config: SystemConfig;
   private readonly _logger: Logger<ILogObj>;
+  private readonly _oidcTokenProvider?: OidcTokenProvider;
 
   constructor(
     locationRepository: ILocationRepository,
@@ -42,6 +44,9 @@ export class UnknownTokenOcpiAuthorizer {
     this._logger = logger
       ? logger.getSubLogger({ name: this.constructor.name })
       : new Logger<ILogObj>({ name: this.constructor.name });
+    if (config.oidcClient) {
+      this._oidcTokenProvider = new OidcTokenProvider(config.oidcClient, this._logger);
+    }
   }
 
   async authorize(
@@ -105,9 +110,18 @@ export class UnknownTokenOcpiAuthorizer {
       const headers: { [key: string]: string } = {
         'Content-Type': 'application/json',
       };
-      // The OCPI `/realTimeAuth` endpoint is an admin endpoint; align this with the
-      // admin auth scheme expected by citrineos-ocpi.
-      if (this._config.ocpiServer.adminToken) {
+      // The OCPI `/realTimeAuth` endpoint is an admin endpoint. When citrineos-ocpi is
+      // configured with OIDC, it expects a Bearer JWT (client-credentials); otherwise we
+      // fall back to the legacy `Token <adminToken>` scheme.
+      if (this._oidcTokenProvider) {
+        try {
+          const token = await this._oidcTokenProvider.getToken();
+          headers['Authorization'] = `Bearer ${token}`;
+        } catch (error) {
+          this._logger.error('Failed to get OIDC token for real-time authorization:', error);
+          return AuthorizationStatusEnum.Unknown;
+        }
+      } else if (this._config.ocpiServer.adminToken) {
         headers['Authorization'] = `Token ${this._config.ocpiServer.adminToken}`;
       }
 
@@ -116,6 +130,14 @@ export class UnknownTokenOcpiAuthorizer {
         headers,
         body: JSON.stringify(payload),
       });
+
+      if (!response.ok) {
+        const responseBody = await response.text();
+        this._logger.error(
+          `Real-time authorization request to ${url} failed: HTTP ${response.status} ${responseBody}`,
+        );
+        return AuthorizationStatusEnum.Unknown;
+      }
 
       const responseJson = (await response.json()) as RealTimeAuthorizationResponse;
       this._logger.debug(`Real-time auth response: ${responseJson?.data?.allowed}`);
@@ -142,6 +164,8 @@ export class UnknownTokenOcpiAuthorizer {
 
   private _buildRealTimeAuthUrl(): string {
     const { host, port, version } = this._config.ocpiServer;
-    return `http://${host}:${port}/ocpi/${version}/realTimeAuth`;
+    // Mirrors the citrineos-ocpi route: global '/ocpi' prefix + Tokens controller
+    // base '/:role(cpo|emsp)/:versionId/tokens' + the '/realTimeAuth' admin endpoint.
+    return `http://${host}:${port}/ocpi/emsp/${version}/tokens/realTimeAuth`;
   }
 }
