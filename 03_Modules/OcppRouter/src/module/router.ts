@@ -408,15 +408,16 @@ export class MessageRouterImpl extends AbstractMessageRouter implements IMessage
   ): Promise<IMessageConfirmation> {
     const message: CallResult = [MessageTypeId.CallResult, correlationId, payload];
     const identifier = createIdentifier(tenantId, stationId);
+    const inboundCacheKey = this._inboundCallCacheKey(identifier, correlationId);
 
     const cachedActionMessageId = await this._cache.get<string>(
-      identifier,
+      inboundCacheKey,
       CacheNamespace.Transactions,
     );
     if (!cachedActionMessageId) {
       this._logger.error(
         'Failed to send callResult due to missing message id',
-        identifier,
+        inboundCacheKey,
         message,
       );
       return { success: false };
@@ -433,13 +434,13 @@ export class MessageRouterImpl extends AbstractMessageRouter implements IMessage
           rawMessage,
           message,
         ),
-        this._cache.remove(identifier, CacheNamespace.Transactions),
+        this._cache.remove(inboundCacheKey, CacheNamespace.Transactions),
       ]).then((successes) => successes.every(Boolean));
       return { success };
     } else {
       this._logger.error(
         'Failed to send callResult due to mismatch in message id',
-        identifier,
+        inboundCacheKey,
         cachedActionMessageId,
         message,
       );
@@ -470,13 +471,18 @@ export class MessageRouterImpl extends AbstractMessageRouter implements IMessage
   ): Promise<IMessageConfirmation> {
     const message: CallError = error.asCallError();
     const identifier = createIdentifier(tenantId, stationId);
+    const inboundCacheKey = this._inboundCallCacheKey(identifier, correlationId);
 
     const cachedActionMessageId = await this._cache.get<string>(
-      identifier,
+      inboundCacheKey,
       CacheNamespace.Transactions,
     );
     if (!cachedActionMessageId) {
-      this._logger.error('Failed to send callError due to missing message id', identifier, message);
+      this._logger.error(
+        'Failed to send callError due to missing message id',
+        inboundCacheKey,
+        message,
+      );
       return { success: false };
     }
     const [cachedAction, cachedMessageId] = cachedActionMessageId?.split(/:(.*)/) ?? []; // Returns all characters after first ':' in case ':' is used in messageId
@@ -491,13 +497,13 @@ export class MessageRouterImpl extends AbstractMessageRouter implements IMessage
           rawMessage,
           message,
         ),
-        this._cache.remove(identifier, CacheNamespace.Transactions),
+        this._cache.remove(inboundCacheKey, CacheNamespace.Transactions),
       ]).then((successes) => successes.every(Boolean));
       return { success };
     } else {
       this._logger.error(
         'Failed to send callError due to mismatch in message id or action',
-        identifier,
+        inboundCacheKey,
         cachedActionMessageId,
         cachedAction,
         message,
@@ -550,24 +556,26 @@ export class MessageRouterImpl extends AbstractMessageRouter implements IMessage
       });
     }
 
-    // Ensure only one call is processed at a time. Charging stations can send
-    // bursts of Calls (e.g. chunked ReportChargingProfiles / NotifyReport with
-    // tbc=true) faster than we can answer the first one. Rather than rejecting
-    // the losers of the lock race with an RpcFrameworkError, queue them: wait
-    // for the in-progress call to release the lock and retry until we acquire it
-    // or exceed maxCallLengthSeconds.
+    // OCPP 2.0.1 allows concurrent inbound Calls with distinct messageIds. Track each
+    // inbound Call separately so high-frequency messages (e.g. TransactionEvent) are
+    // not serialized behind a single station-wide lock. Outbound Calls still use the
+    // station identifier as the cache key (see sendCall).
+    const inboundCacheKey = this._inboundCallCacheKey(identifier, messageId);
     const maxWaitSeconds = this._config.maxCallLengthSeconds;
-    const deadline = Date.now() + maxWaitSeconds * 1000;
+    // Each onChange wait can take up to maxWaitSeconds (e.g. when Redis keyspace
+    // notifications are disabled). The total budget must exceed one such wait.
+    const maxInboundLockWaitSeconds = maxWaitSeconds * 5;
+    const deadline = Date.now() + maxInboundLockWaitSeconds * 1000;
     let successfullySet = false;
     do {
       // Subscribe before attempting to set so we don't miss the release notification.
       const callOngoing = this._cache.onChange(
-        identifier,
+        inboundCacheKey,
         maxWaitSeconds,
         CacheNamespace.Transactions,
       );
       successfullySet = await this._cache.setIfNotExist(
-        identifier,
+        inboundCacheKey,
         `${action}:${messageId}`,
         CacheNamespace.Transactions,
         this._config.maxCallLengthSeconds,
@@ -577,11 +585,12 @@ export class MessageRouterImpl extends AbstractMessageRouter implements IMessage
         break;
       }
       this._logger.debug(
-        'Ongoing Call already in progress, waiting for ongoing call before retrying',
+        'Duplicate inbound Call in progress, waiting for prior attempt before retrying',
         identifier,
-        message,
+        messageId,
+        action,
       );
-      await callOngoing; // Wait for the ongoing call to release the lock (or timeout)
+      await callOngoing; // Station retried the same messageId before we responded
     } while (Date.now() < deadline);
 
     if (!successfullySet) {
@@ -610,9 +619,11 @@ export class MessageRouterImpl extends AbstractMessageRouter implements IMessage
           this._logger.error('sendCallError failed', err);
         })
         .finally(() => {
-          this._cache.remove(identifier, CacheNamespace.Transactions).catch((err) => {
-            this._logger.error('cache remove failed', err);
-          });
+          this._cache
+            .remove(this._inboundCallCacheKey(identifier, messageId), CacheNamespace.Transactions)
+            .catch((err) => {
+              this._logger.error('cache remove failed', err);
+            });
         });
     }
   }
@@ -1046,5 +1057,13 @@ export class MessageRouterImpl extends AbstractMessageRouter implements IMessage
         break;
     }
     return action;
+  }
+
+  /**
+   * Cache key for an inbound Call from a charging station.
+   * Distinct from the station-wide key used for outbound Calls (sendCall).
+   */
+  private _inboundCallCacheKey(identifier: string, messageId: string): string {
+    return `${identifier}:in:${messageId}`;
   }
 }
