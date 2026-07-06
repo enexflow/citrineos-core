@@ -18,6 +18,7 @@ import type {
 } from './RealTimeAuthorizer.js';
 
 // The hub TenantPartner that unknown tokens are delegated to for real-time authorization.
+// In case of wanting RTA to be delegated to a different partner, you can change the following constants. In case of wanting to scale, use DB settings instead -> rework
 const HUB_PARTNER_COUNTRY_CODE = 'FR';
 const HUB_PARTNER_PARTY_IDS = ['007', '107'];
 
@@ -71,34 +72,12 @@ export class UnknownTokenOcpiAuthorizer {
       context.stationId,
     );
 
-    // Best-effort resolution of the EVSE and connector from a single-evse/single-connector station.
-    let evseId: number | undefined = undefined;
-    let connectorId: number | undefined = undefined;
-    if (
-      chargingStation &&
-      chargingStation.evses &&
-      chargingStation.evses.length === 1 &&
-      chargingStation.evses[0].connectors?.length === 1
-    ) {
-      evseId = chargingStation.evses[0].id!;
-      connectorId = chargingStation.evses[0].connectors![0].id!;
-    }
-
-    if (evseId === undefined || connectorId === undefined) {
-      this._logger.error(
-        `Cannot determine evseId and connectorId for real-time authorization of unknown token at station ${context.stationId}`,
-      );
-      return AuthorizationStatusEnum.Unknown;
-    }
-
     const payload: RealTimeAuthorizationRequestBody = {
       tenantPartnerId: hubPartner.id,
       idToken,
       idTokenType,
-      locationId: chargingStation!.locationId?.toString(),
+      locationId: chargingStation?.locationId?.toString(),
       stationId: context.stationId,
-      evseId,
-      connectorId,
     };
 
     const url = this._buildRealTimeAuthUrl();
