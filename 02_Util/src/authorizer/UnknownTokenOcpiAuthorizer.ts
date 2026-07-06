@@ -18,8 +18,7 @@ import type {
 } from './RealTimeAuthorizer.js';
 
 // The hub TenantPartner that unknown tokens are delegated to for real-time authorization.
-// In case of wanting RTA to be delegated to a different partner, you can change the following constants. In case of wanting to scale, use DB settings instead -> rework
-const HUB_PARTNER_COUNTRY_CODE = 'FR';
+// Warning : As of now, only one hub partner is supported. In case of several partners, need for a rework to send authorization to all partners.
 const HUB_PARTNER_PARTY_IDS = ['007', '107'];
 
 /**
