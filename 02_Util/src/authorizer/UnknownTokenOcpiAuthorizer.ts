@@ -19,6 +19,7 @@ import type {
 
 // The hub TenantPartner that unknown tokens are delegated to for real-time authorization.
 // Warning : As of now, only one hub partner is supported. In case of several partners, need for a rework to send authorization to all partners.
+const HUB_PARTNER_COUNTRY_CODE = 'FR';
 const HUB_PARTNER_PARTY_IDS = ['007', '107'];
 
 /**
