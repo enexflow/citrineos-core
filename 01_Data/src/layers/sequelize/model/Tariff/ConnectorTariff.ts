@@ -44,6 +44,7 @@ export class ConnectorTariff extends Model {
   declare connectorId: number;
   @BelongsTo(() => Connector)
   declare connector?: ConnectorDto;
+
   @ForeignKey(() => Tariff)
   @Column({
     type: DataType.INTEGER,
@@ -52,6 +53,7 @@ export class ConnectorTariff extends Model {
     onDelete: 'CASCADE',
   })
   declare tariffId: number;
+
   @BelongsTo(() => Tariff)
   declare tariff?: TariffDto;
   @ForeignKey(() => TenantPartner)
@@ -62,8 +64,10 @@ export class ConnectorTariff extends Model {
     onDelete: 'CASCADE',
   })
   declare tenantPartnerId?: number | null;
+
   @BelongsTo(() => TenantPartner)
   declare tenantPartner?: TenantPartnerDto; // not TenantPartner
+
   @ForeignKey(() => Tenant)
   @Column({
     type: DataType.INTEGER,
@@ -72,20 +76,9 @@ export class ConnectorTariff extends Model {
     onDelete: 'CASCADE',
   })
   declare tenantId: number;
+
   @BelongsTo(() => Tenant)
   declare tenant?: TenantDto;
-
-  //   @BelongsTo(() => Tenant)
-  //   declare tenant?: Tenant;
-
-  //   public static newInstance(data: ConnectorTariffData): ConnectorTariff {
-  //     return ConnectorTariff.build({ ...data });
-  //   }
-
-  //   @BelongsTo(() => Connector)
-  // declare connector?: ConnectorDto;
-  // @BelongsTo(() => Tariff)
-  // declare tariff?: TariffDto;
 
   @BeforeUpdate
   @BeforeCreate
