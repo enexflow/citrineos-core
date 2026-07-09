@@ -139,6 +139,12 @@ export class Tariff extends Model implements TariffDto {
     return Tariff.build({ ...data });
   }
 
+  @Column({ type: DataType.DATE, allowNull: true })
+  declare startDateTime?: Date | null;
+
+  @Column({ type: DataType.DATE, allowNull: true })
+  declare endDateTime?: Date | null;
+
   @ForeignKey(() => Tenant)
   @Column({
     type: DataType.INTEGER,

@@ -48,7 +48,7 @@ export {
 export { AuthorizationLocation } from './model/AuthorizationLocation.js';
 export { ChargingStationSequence } from './model/ChargingStationSequence/index.js';
 export { MessageInfo } from './model/MessageInfo/index.js';
-export { Tariff } from './model/Tariff/index.js';
+export { Tariff, ConnectorTariff } from './model/Tariff/index.js';
 export { Subscription } from './model/Subscription/index.js';
 export {
   Certificate,

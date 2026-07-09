@@ -25,6 +25,7 @@ import {
   AuthorizationTenant,
   ChargingStation,
   Connector,
+  ConnectorTariff,
   Evse,
   EvseType,
   MeterValue,
@@ -36,6 +37,7 @@ import {
 } from '../model/index.js';
 import { SequelizeRepository } from './Base.js';
 import { SequelizeChargingStationSequenceRepository } from './ChargingStationSequence.js';
+import { selectApplicableTariff } from '../../../util/selectApplicableTariff.js';
 
 export class SequelizeTransactionEventRepository
   extends SequelizeRepository<TransactionEvent>
@@ -169,10 +171,17 @@ export class SequelizeTransactionEventRepository
               evseId: evse.id,
               evseTypeConnectorId: value.evse.connectorId,
             },
-            include: [Tariff],
+            include: [
+              {
+                model: ConnectorTariff,
+                where: { tenantPartnerId: null },
+                required: false,
+                include: [{ model: Tariff }],
+              },
+            ],
           });
           connectorId = connector.id;
-          tariffId = connector.tariffs?.[0]?.id;
+          tariffId = selectApplicableTariff(connector.connectorTariffs, new Date(value.timestamp));
         }
         let authorizationId = existingTransaction.authorizationId;
         if (!authorizationId && value.idToken) {
@@ -249,10 +258,20 @@ export class SequelizeTransactionEventRepository
                 evseId: evse.id,
                 evseTypeConnectorId: value.evse.connectorId,
               },
-              include: [Tariff],
+              include: [
+                {
+                  model: ConnectorTariff,
+                  where: { tenantPartnerId: null },
+                  required: false,
+                  include: [{ model: Tariff }],
+                },
+              ],
             });
             newTransaction.set('connectorId', connector.id);
-            newTransaction.set('tariffId', connector.tariffs?.[0]?.id);
+            newTransaction.set(
+              'tariffId',
+              selectApplicableTariff(connector.connectorTariffs, new Date(value.timestamp)),
+            );
           }
         }
 
@@ -742,7 +761,7 @@ export class SequelizeTransactionEventRepository
         stationId,
         evseId: connector.evseId,
         connectorId: connector.id,
-        tariffId: connector.tariffs?.[0]?.id,
+        tariffId: connector.connectorTariffs?.[0]?.id,
         isActive: true,
         transactionId: transactionId.toString(),
         authorizationId: authorization ? authorization.id : null,

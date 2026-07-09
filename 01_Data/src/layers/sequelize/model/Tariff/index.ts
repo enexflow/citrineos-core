@@ -2,3 +2,4 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 export { Tariff } from './Tariffs.js';
+export { ConnectorTariff } from './ConnectorTariff.js';
