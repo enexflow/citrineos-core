@@ -261,6 +261,7 @@ export function createLocalConfig() {
     ocpiServer: {
       host: '0.0.0.0',
       port: 8085,
+      version: '2.2.1',
     },
     userPreferences: {
       // None by default

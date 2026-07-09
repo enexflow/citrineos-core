@@ -41,6 +41,7 @@ import type {
   IOCPPMessageRepository,
   IReservationRepository,
   ITariffRepository,
+  ITenantPartnerRepository,
   ITransactionEventRepository,
 } from '@citrineos/data';
 import {
@@ -58,6 +59,7 @@ import {
   RabbitMqReceiver,
   RabbitMqSender,
   RealTimeAuthorizer,
+  UnknownTokenOcpiAuthorizer,
   validateIdToken,
 } from '@citrineos/util';
 import type { ILogObj } from 'tslog';
@@ -79,6 +81,7 @@ export class EVDriverModule extends AbstractModule {
   protected _locationRepository: ILocationRepository;
   private _certificateAuthorityService: CertificateAuthorityService;
   private _authorizers: IAuthorizer[];
+  private _unknownTokenOcpiAuthorizer?: UnknownTokenOcpiAuthorizer;
   private _idGenerator: IdGenerator;
 
   /**
@@ -165,6 +168,7 @@ export class EVDriverModule extends AbstractModule {
     realTimeAuthorizer?: IAuthorizer,
     authorizers?: IAuthorizer[],
     idGenerator?: IdGenerator,
+    unknownTokenOcpiAuthorizer?: UnknownTokenOcpiAuthorizer,
   ) {
     super(
       config,
@@ -211,6 +215,8 @@ export class EVDriverModule extends AbstractModule {
       realTimeAuthorizer ||
       new RealTimeAuthorizer(this._locationRepository, this.config, this._logger);
     this._authorizers = [_realTimeAuthorizer, ...(authorizers || [])];
+
+    this._unknownTokenOcpiAuthorizer = unknownTokenOcpiAuthorizer;
 
     this._idGenerator =
       idGenerator ||
@@ -468,14 +474,21 @@ export class EVDriverModule extends AbstractModule {
         response.idTokenInfo = idTokenInfo;
       }
     } else {
-      // Status is Unknown if no authorization found
+      // No local authorization found. Default to Unknown, but optionally delegate a
+      // real-time authorization to the OCPI module for unknown tokens.
       response.idTokenInfo = {
         status: OCPP2_0_1.AuthorizationStatusEnumType.Unknown,
         // TODO determine how/if to set personalMessage
       };
-      const messageConfirmation = await this.sendCallResultWithMessage(message, response);
-      this._logger.debug('Authorize response sent:', messageConfirmation);
-      return;
+      if (this._unknownTokenOcpiAuthorizer) {
+        const result = await this._unknownTokenOcpiAuthorizer.authorize(
+          request.idToken.idToken,
+          OCPP2_0_1_Mapper.AuthorizationMapper.fromIdTokenEnumType(request.idToken.type),
+          context,
+        );
+        response.idTokenInfo.status =
+          OCPP2_0_1_Mapper.AuthorizationMapper.fromAuthorizationStatusEnumType(result);
+      }
     }
 
     if (response.idTokenInfo.status === OCPP2_0_1.AuthorizationStatusEnumType.Accepted) {

@@ -23,8 +23,8 @@ export interface RealTimeAuthorizationRequestBody {
   idTokenType: IdTokenEnumType;
   locationId?: string;
   stationId: string;
-  evseId: number;
-  connectorId: number;
+  evseId?: number;
+  connectorId?: number;
 }
 
 export interface RealTimeAuthorizationResponse {

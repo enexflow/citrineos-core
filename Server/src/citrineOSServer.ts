@@ -75,6 +75,7 @@ import {
   RealTimeAuthorizer,
   RedisCache,
   UnknownStationFilter,
+  UnknownTokenOcpiAuthorizer,
   WebsocketNetworkConnection,
 } from '@citrineos/util';
 import cors from '@fastify/cors';
@@ -114,6 +115,7 @@ export class CitrineOSServer {
   protected _certificateAuthorityService!: CertificateAuthorityService;
   protected _smartChargingService!: ISmartCharging;
   protected _realTimeAuthorizer!: IAuthorizer;
+  protected _unknownTokenOcpiAuthorizer!: UnknownTokenOcpiAuthorizer;
 
   protected readonly appName: string;
 
@@ -190,6 +192,7 @@ export class CitrineOSServer {
     this.initCertificateAuthorityService();
     this.initSmartChargingService();
     this.initRealTimeAuthorizer();
+    this.initUnknownTokenOcpiAuthorizer();
   }
 
   async initialize(): Promise<void> {
@@ -519,6 +522,7 @@ export class CitrineOSServer {
       this._realTimeAuthorizer,
       [],
       this._idGenerator,
+      this._unknownTokenOcpiAuthorizer,
     );
     await this.initHandlersAndAddModule(module);
     this.apis.push(
@@ -716,6 +720,15 @@ export class CitrineOSServer {
   protected initRealTimeAuthorizer() {
     this._realTimeAuthorizer = new RealTimeAuthorizer(
       this._repositoryStore.locationRepository,
+      this._config,
+      this._logger,
+    );
+  }
+
+  protected initUnknownTokenOcpiAuthorizer() {
+    this._unknownTokenOcpiAuthorizer = new UnknownTokenOcpiAuthorizer(
+      this._repositoryStore.locationRepository,
+      this._repositoryStore.tenantPartnerRepository,
       this._config,
       this._logger,
     );

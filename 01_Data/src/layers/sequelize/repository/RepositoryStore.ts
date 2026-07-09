@@ -21,6 +21,7 @@ import type {
   IServerNetworkProfileRepository,
   ISubscriptionRepository,
   ITariffRepository,
+  ITenantPartnerRepository,
   ITenantRepository,
   ITransactionEventRepository,
   IVariableMonitoringRepository,
@@ -48,7 +49,11 @@ import { SequelizeLocalAuthListRepository } from './LocalAuthList.js';
 import { SequelizeChargingStationSequenceRepository } from './ChargingStationSequence.js';
 import { SequelizeChargingProfileRepository } from './ChargingProfile.js';
 import { SequelizeChangeConfigurationRepository } from './ChangeConfiguration.js';
-import { SequelizeOCPPMessageRepository, SequelizeTenantRepository } from '../index.js';
+import {
+  SequelizeOCPPMessageRepository,
+  SequelizeTenantPartnerRepository,
+  SequelizeTenantRepository,
+} from '../index.js';
 import { SequelizeServerNetworkProfileRepository } from './ServerNetworkProfile.js';
 import { SequelizeInstalledCertificateRepository } from './InstalledCertificate.js';
 import { SequelizeInstallCertificateAttemptRepository } from './InstallCertificateAttempt.js';
@@ -78,6 +83,7 @@ export class RepositoryStore {
   transactionEventRepository: ITransactionEventRepository;
   variableMonitoringRepository: IVariableMonitoringRepository;
   tenantRepository: ITenantRepository;
+  tenantPartnerRepository: ITenantPartnerRepository;
   serverNetworkProfileRepository: IServerNetworkProfileRepository;
 
   constructor(config: BootstrapConfig, logger: Logger<ILogObj>, sequelizeInstance: Sequelize) {
@@ -177,6 +183,11 @@ export class RepositoryStore {
       sequelizeInstance,
     );
     this.tenantRepository = new SequelizeTenantRepository(config, logger, sequelizeInstance);
+    this.tenantPartnerRepository = new SequelizeTenantPartnerRepository(
+      config,
+      logger,
+      sequelizeInstance,
+    );
     this.serverNetworkProfileRepository = new SequelizeServerNetworkProfileRepository(
       config,
       logger,
