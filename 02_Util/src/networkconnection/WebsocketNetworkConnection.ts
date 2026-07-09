@@ -387,6 +387,14 @@ export class WebsocketNetworkConnection implements INetworkConnection {
         // Resume the WebSocket event emitter after events have been subscribed to
         ws.resume();
       } catch (error) {
+        this._identifierConnections.delete(identifier);
+        await this._cache.remove(identifier, CacheNamespace.Connections);
+        await this._router.deregisterConnection(tenantId, stationId).catch((deregisterError) => {
+          this._logger.warn(
+            `Failed to deregister connection during registration rollback for ${identifier}:`,
+            deregisterError,
+          );
+        });
         this._logger.fatal('Failed to subscribe to message broker for ', identifier);
         ws.close(1011, 'Failed to subscribe to message broker for ' + identifier);
       }

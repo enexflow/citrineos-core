@@ -140,41 +140,55 @@ export class MessageRouterImpl extends AbstractMessageRouter implements IMessage
     stationId: string,
     protocol: OCPPVersion,
   ): Promise<boolean> {
-    const dispatcherRegistration = this._webhookDispatcher.register(tenantId, stationId);
-
     const connectionIdentifier = createIdentifier(tenantId, stationId);
-    const requestSubscription = this._handler.subscribe(connectionIdentifier, undefined, {
-      tenantId: tenantId.toString(),
-      stationId,
-      state: MessageState.Request.toString(),
-      origin: MessageOrigin.ChargingStationManagementSystem.toString(),
-    });
 
-    const responseSubscription = this._handler.subscribe(connectionIdentifier, undefined, {
-      tenantId: tenantId.toString(),
-      stationId,
-      state: MessageState.Response.toString(),
-      origin: MessageOrigin.ChargingStationManagementSystem.toString(),
-    });
+    try {
+      await this._webhookDispatcher.register(tenantId, stationId);
 
-    const onlineCharger = this._locationRepository.setChargingStationIsOnlineAndOCPPVersion(
-      tenantId,
-      stationId,
-      true,
-      protocol,
-    );
-
-    return Promise.all([
-      dispatcherRegistration,
-      requestSubscription,
-      responseSubscription,
-      onlineCharger,
-    ])
-      .then((resolvedArray) => resolvedArray[1] && resolvedArray[2])
-      .catch((error) => {
-        this._logger.error(`Error registering connection for ${connectionIdentifier}: ${error}`);
-        return false;
+      // Subscribe request and response bindings sequentially; amqplib channels are not
+      // concurrency-safe and both bindings share the same queue.
+      const requestSubscribed = await this._handler.subscribe(connectionIdentifier, undefined, {
+        tenantId: tenantId.toString(),
+        stationId,
+        state: MessageState.Request.toString(),
+        origin: MessageOrigin.ChargingStationManagementSystem.toString(),
       });
+
+      const responseSubscribed = await this._handler.subscribe(connectionIdentifier, undefined, {
+        tenantId: tenantId.toString(),
+        stationId,
+        state: MessageState.Response.toString(),
+        origin: MessageOrigin.ChargingStationManagementSystem.toString(),
+      });
+
+      if (!requestSubscribed || !responseSubscribed) {
+        await this._handler.unsubscribe(connectionIdentifier).catch((err) => {
+          this._logger.warn(
+            `Failed to roll back broker subscription for ${connectionIdentifier}:`,
+            err,
+          );
+        });
+        return false;
+      }
+
+      await this._locationRepository.setChargingStationIsOnlineAndOCPPVersion(
+        tenantId,
+        stationId,
+        true,
+        protocol,
+      );
+
+      return true;
+    } catch (error) {
+      this._logger.error(`Error registering connection for ${connectionIdentifier}: ${error}`);
+      await this._handler.unsubscribe(connectionIdentifier).catch((err) => {
+        this._logger.warn(
+          `Failed to roll back broker subscription for ${connectionIdentifier}:`,
+          err,
+        );
+      });
+      return false;
+    }
   }
 
   async deregisterConnection(tenantId: number, stationId: string): Promise<boolean> {
