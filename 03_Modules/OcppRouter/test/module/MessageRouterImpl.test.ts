@@ -43,6 +43,7 @@ const STATION_ID = 'CS001';
 const IDENTIFIER = createIdentifier(TENANT_ID, STATION_ID);
 const PROTOCOL = OCPPVersion.OCPP2_0_1;
 const CORRELATION_ID = 'msg-123';
+const INBOUND_CALL_CACHE_KEY = `${IDENTIFIER}:in:${CORRELATION_ID}`;
 
 function buildConfig(overrides?: Partial<SystemConfig & BootstrapConfig>): any {
   return {
@@ -563,7 +564,7 @@ describe('MessageRouterImpl', () => {
       expect(sentMessage[2]).toBe(ErrorCode.FormatViolation);
     });
 
-    it('should wait for ongoing call and retry when setIfNotExist fails initially', async () => {
+    it('should wait for duplicate inbound Call and retry when setIfNotExist fails initially', async () => {
       cache.exists.mockResolvedValue(false);
       vi.spyOn(router as any, '_validateCall').mockReturnValue({ isValid: true });
 
@@ -583,6 +584,45 @@ describe('MessageRouterImpl', () => {
       expect(result).toBe(true);
       expect(cache.setIfNotExist).toHaveBeenCalledTimes(2);
       expect(cache.onChange).toHaveBeenCalled();
+    });
+
+    it('should allow concurrent inbound Calls with distinct messageIds', async () => {
+      cache.exists.mockResolvedValue(false);
+      vi.spyOn(router as any, '_validateCall').mockReturnValue({ isValid: true });
+      cache.setIfNotExist.mockResolvedValue(true);
+
+      const firstMessage = JSON.stringify([
+        MessageTypeId.Call,
+        'msg-first',
+        OCPP2_0_1_CallAction.TransactionEvent,
+        {},
+      ]);
+      const secondMessage = JSON.stringify([
+        MessageTypeId.Call,
+        'msg-second',
+        OCPP2_0_1_CallAction.TransactionEvent,
+        {},
+      ]);
+
+      const [firstResult, secondResult] = await Promise.all([
+        router.onMessage(IDENTIFIER, firstMessage, timestamp, PROTOCOL),
+        router.onMessage(IDENTIFIER, secondMessage, timestamp, PROTOCOL),
+      ]);
+
+      expect(firstResult).toBe(true);
+      expect(secondResult).toBe(true);
+      expect(cache.setIfNotExist).toHaveBeenCalledWith(
+        `${IDENTIFIER}:in:msg-first`,
+        `${OCPP2_0_1_CallAction.TransactionEvent}:msg-first`,
+        CacheNamespace.Transactions,
+        config.maxCallLengthSeconds,
+      );
+      expect(cache.setIfNotExist).toHaveBeenCalledWith(
+        `${IDENTIFIER}:in:msg-second`,
+        `${OCPP2_0_1_CallAction.TransactionEvent}:msg-second`,
+        CacheNamespace.Transactions,
+        config.maxCallLengthSeconds,
+      );
     });
 
     it('should send CallError when the lock cannot be acquired before the deadline', async () => {
@@ -778,7 +818,10 @@ describe('MessageRouterImpl', () => {
       const sentMessage = JSON.parse(networkHook.mock.calls[0][1]);
       expect(sentMessage[0]).toBe(MessageTypeId.CallResult);
       expect(sentMessage[1]).toBe(CORRELATION_ID);
-      expect(cache.remove).toHaveBeenCalledWith(IDENTIFIER, CacheNamespace.Transactions);
+      expect(cache.remove).toHaveBeenCalledWith(
+        INBOUND_CALL_CACHE_KEY,
+        CacheNamespace.Transactions,
+      );
     });
 
     it('should return success false when no cached message id exists', async () => {
@@ -881,7 +924,10 @@ describe('MessageRouterImpl', () => {
       expect(sentMessage[0]).toBe(MessageTypeId.CallError);
       expect(sentMessage[1]).toBe(CORRELATION_ID);
       expect(sentMessage[2]).toBe(ErrorCode.InternalError);
-      expect(cache.remove).toHaveBeenCalledWith(IDENTIFIER, CacheNamespace.Transactions);
+      expect(cache.remove).toHaveBeenCalledWith(
+        INBOUND_CALL_CACHE_KEY,
+        CacheNamespace.Transactions,
+      );
     });
 
     it('should return success false when no cached message id exists', async () => {
@@ -1382,7 +1428,7 @@ describe('MessageRouterImpl', () => {
       expect(result).toBe(true);
       expect(sender.send).toHaveBeenCalled();
       expect(cache.setIfNotExist).toHaveBeenCalledWith(
-        IDENTIFIER,
+        INBOUND_CALL_CACHE_KEY,
         `${OCPP2_0_1_CallAction.Heartbeat}:${CORRELATION_ID}`,
         CacheNamespace.Transactions,
         config.maxCallLengthSeconds,
