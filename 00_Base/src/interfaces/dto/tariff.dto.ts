@@ -5,6 +5,21 @@
 import { z } from 'zod';
 import { BaseSchema } from './types/base.dto.js';
 
+export const TariffElementSchema = z.object({
+  id: z.number().int().optional(),
+  priceComponents: z
+    .array(
+      z.object({
+        type: z.string(),
+        price: z.number().min(0),
+        vat: z.number().min(0).nullable().optional(),
+      }),
+    )
+    .nullable()
+    .optional(),
+  restrictions: z.record(z.string(), z.any()).nullable().optional(),
+});
+
 export const TariffSchema = BaseSchema.extend({
   id: z.number().int().optional(),
   ocpiTariffId: z.string().max(36).nullable().optional(), // OCPI CiString(36)
@@ -27,6 +42,7 @@ export const TariffSchema = BaseSchema.extend({
   endDateTime: z.coerce.date().nullable().optional(),
   tenantPartnerId: z.number().int().nullable().optional(),
   roamingPartnerId: z.number().int().nullable().optional(),
+  TariffElements: z.array(TariffElementSchema).nullable().optional(),
 });
 
 export const TariffProps = TariffSchema.keyof().enum;
