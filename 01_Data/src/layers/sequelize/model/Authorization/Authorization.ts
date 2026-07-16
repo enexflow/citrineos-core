@@ -4,6 +4,7 @@
 
 import type {
   AdditionalInfo,
+  AuthMethodEnumType,
   AuthorizationDto,
   AuthorizationStatusEnumType,
   AuthorizationWhitelistEnumType,
@@ -85,6 +86,9 @@ export class Authorization extends Model implements AuthorizationDto {
 
   @Column(DataType.STRING)
   declare realTimeAuthUrl?: string;
+
+  @Column(DataType.STRING)
+  declare ocpiAuthMethod?: AuthMethodEnumType | null;
 
   @HasMany(() => AuthorizationTenant, { foreignKey: 'authorizationId', as: 'tenants' })
   declare tenants?: AuthorizationTenant[] | null;

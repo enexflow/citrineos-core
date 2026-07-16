@@ -18,6 +18,7 @@ import type {
 import {
   AbstractModule,
   AsHandler,
+  AuthMethodEnum,
   AuthorizationStatusEnum,
   ChargingLimitSourceEnum,
   ChargingStationSequenceTypeEnum,
@@ -340,13 +341,19 @@ export class EVDriverModule extends AbstractModule {
       }
     }
 
-    const authorization = await this._authorizeRepository.readOnlyOneByQuerystring(
-      context.tenantId,
-      {
-        idToken: request.idToken.idToken,
-        type: OCPP2_0_1_Mapper.AuthorizationMapper.fromIdTokenEnumType(request.idToken.type),
-      },
-    );
+    const auth = await this._authorizeRepository.readOnlyOneByQuerystring(context.tenantId, {
+      idToken: request.idToken.idToken,
+      type: OCPP2_0_1_Mapper.AuthorizationMapper.fromIdTokenEnumType(request.idToken.type),
+    });
+
+    // If the authorization is a command or auth request, we don't use it
+    // those authorisation were used for Start Session or RTA and should not be authorised again
+    const authorization =
+      auth &&
+      auth.ocpiAuthMethod !== AuthMethodEnum.COMMAND &&
+      auth.ocpiAuthMethod !== AuthMethodEnum.AUTH_REQUEST
+        ? auth
+        : undefined;
 
     if (authorization) {
       // Use flat fields directly instead of authorization.idTokenInfo
@@ -856,6 +863,16 @@ export class EVDriverModule extends AbstractModule {
       }
 
       const authorization = authorizations[0];
+
+      if (
+        authorization.ocpiAuthMethod === AuthMethodEnum.COMMAND ||
+        authorization.ocpiAuthMethod === AuthMethodEnum.AUTH_REQUEST
+      ) {
+        this._logger.debug(`Ignoring COMMAND authorization ${authorization.id} for RFID Authorize`);
+        response.idTagInfo.status = OCPP1_6.AuthorizeResponseStatus.Invalid;
+        await this.sendCallResultWithMessage(message, response);
+        return;
+      }
 
       if (!authorization.status) {
         response.idTagInfo.status = OCPP1_6.AuthorizeResponseStatus.Accepted;
