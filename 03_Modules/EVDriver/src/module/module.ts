@@ -864,16 +864,6 @@ export class EVDriverModule extends AbstractModule {
 
       const authorization = authorizations[0];
 
-      if (
-        authorization.ocpiAuthMethod === AuthMethodEnum.COMMAND ||
-        authorization.ocpiAuthMethod === AuthMethodEnum.AUTH_REQUEST
-      ) {
-        this._logger.debug(`Ignoring COMMAND authorization ${authorization.id} for RFID Authorize`);
-        response.idTagInfo.status = OCPP1_6.AuthorizeResponseStatus.Invalid;
-        await this.sendCallResultWithMessage(message, response);
-        return;
-      }
-
       if (!authorization.status) {
         response.idTagInfo.status = OCPP1_6.AuthorizeResponseStatus.Accepted;
       } else if (authorization.status === AuthorizationStatusEnum.Accepted) {
