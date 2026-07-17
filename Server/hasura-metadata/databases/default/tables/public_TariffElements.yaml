@@ -23,7 +23,7 @@ select_permissions:
           tenantId:
             _eq: x-hasura-tenant-id
       allow_aggregations: true
-    comment: ""
+    comment: ''
 insert_permissions:
   - role: user
     permission:
@@ -37,7 +37,7 @@ insert_permissions:
         Tariff:
           tenantId:
             _eq: x-hasura-tenant-id
-    comment: ""
+    comment: ''
 delete_permissions:
   - role: user
     permission:
@@ -45,4 +45,4 @@ delete_permissions:
         Tariff:
           tenantId:
             _eq: x-hasura-tenant-id
-    comment: ""
+    comment: ''

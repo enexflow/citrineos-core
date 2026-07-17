@@ -79,10 +79,12 @@ select_permissions:
         - tenantPartnerId
         - createdAt
         - updatedAt
+        - ocpiAuthMethod
+        - ocpiAuthReference
       filter:
         tenants:
           tenant:
             id:
               _eq: x-hasura-tenant-id
       allow_aggregations: true
-    comment: ""
+    comment: ''

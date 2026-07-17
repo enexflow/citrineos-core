@@ -41,6 +41,7 @@ const authorizationFields = {
     .optional(),
   roamingPartnerId: z.number().int().nullable().optional(),
   ocpiAuthMethod: AuthMethodSchema.nullable().optional(),
+  ocpiAuthReference: z.string().nullable().optional(),
 };
 
 export const GroupAuthorizationSchema = BaseSchema.omit({ tenant: true, tenantId: true }).extend(

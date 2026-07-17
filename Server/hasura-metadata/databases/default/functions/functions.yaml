@@ -1,4 +1,4 @@
 # SPDX-FileCopyrightText: 2025 Contributors to the CitrineOS Project
 #
 # SPDX-License-Identifier: Apache-2.0
-- "!include public_claim_gireve_broadcast_retries.yaml"
+- '!include public_claim_gireve_broadcast_retries.yaml'

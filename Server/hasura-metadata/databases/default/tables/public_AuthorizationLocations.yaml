@@ -23,6 +23,6 @@ select_permissions:
       filter:
         Location:
           tenantId:
-              _eq: x-hasura-tenant-id
+            _eq: x-hasura-tenant-id
       allow_aggregations: true
-    comment: ""
+    comment: ''
