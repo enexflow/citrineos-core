@@ -87,4 +87,4 @@ select_permissions:
             id:
               _eq: x-hasura-tenant-id
       allow_aggregations: true
-    comment: ''
+    comment: ""
