@@ -42,7 +42,7 @@ services:
     working_dir: /usr/local/apps/citrineos
     entrypoint: ["/bin/sh", "-c"]
     command:
-      - "set -e && npm run migrate && exec npm run start-docker --prefix ./Server"
+      - "set -e && npm run migrate && find . -name '*.tsbuildinfo' -not -path '*/node_modules/*' -delete && exec npm run start-docker --prefix ./Server"
     volumes:
       - ../package-lock.json:/usr/local/apps/citrineos/package-lock-host.json
       - ../package.json:/usr/local/apps/citrineos/package.json

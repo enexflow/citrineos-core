@@ -347,6 +347,8 @@ export class EVDriverModule extends AbstractModule {
       type: OCPP2_0_1_Mapper.AuthorizationMapper.fromIdTokenEnumType(request.idToken.type),
     });
 
+    // If the authorization is a command or auth request, we don't use it
+    // those authorisation were used for Start Session or RTA and should not be authorised again
     let authorization: Authorization | undefined;
 
     if (!auth) {
