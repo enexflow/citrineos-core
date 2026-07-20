@@ -66,7 +66,6 @@ import {
 import type { ILogObj } from 'tslog';
 import { Logger } from 'tslog';
 import { LocalAuthListService } from './LocalAuthListService.js';
-import { AuthorizationMapper } from '@citrineos/data/src/layers/sequelize/mapper/1.6/AuthorizationMapper.js';
 
 /**
  * Component that handles provisioning related messages.

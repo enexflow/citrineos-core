@@ -30,33 +30,6 @@ jobs:
       - name: Build and Run Docker Compose
         run: docker compose -f ${{ github.workspace }}/Server/docker-compose.yml up -d
 
-      - name: Wait for citrine to be healthy
-        run: |
-          for i in $(seq 1 60); do
-            status=$(docker inspect -f '{{.State.Health.Status}}' server-citrine-1 2>/dev/null || echo "starting")
-            echo "Attempt $i: $status"
-            if [ "$status" = "healthy" ]; then
-              echo "Container is healthy!"
-              exit 0
-            fi
-            sleep 5
-          done
-          echo "Container did not become healthy in time"
-          exit 1
-
-      - name: Debug on failure
-        if: failure()
-        run: |
-          echo "=== docker ps -a ==="
-          docker ps -a
-          echo "=== citrine health ==="
-          docker inspect server-citrine-1 --format '{{json .State}}'
-          echo "=== citrine logs ==="
-          docker logs server-citrine-1
-          echo "=== all service logs ==="
-          docker compose -f ${{ github.workspace }}/Server/docker-compose.yml logs --no-color
-
-
       - name: Install Newman
         run: |
           npm install -g newman
