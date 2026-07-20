@@ -66,6 +66,7 @@ import {
 import type { ILogObj } from 'tslog';
 import { Logger } from 'tslog';
 import { LocalAuthListService } from './LocalAuthListService.js';
+import { AuthorizationMapper } from '@citrineos/data/src/layers/sequelize/mapper/1.6/AuthorizationMapper.js';
 
 /**
  * Component that handles provisioning related messages.
@@ -346,14 +347,21 @@ export class EVDriverModule extends AbstractModule {
       type: OCPP2_0_1_Mapper.AuthorizationMapper.fromIdTokenEnumType(request.idToken.type),
     });
 
-    // If the authorization is a command or auth request, we don't use it
-    // those authorisation were used for Start Session or RTA and should not be authorised again
-    const authorization =
-      auth &&
-      auth.ocpiAuthMethod !== AuthMethodEnum.COMMAND &&
-      auth.ocpiAuthMethod !== AuthMethodEnum.AUTH_REQUEST
-        ? auth
-        : undefined;
+    let authorization: Authorization | undefined;
+
+    if (!auth) {
+      authorization = undefined;
+    } else if (auth.ocpiAuthMethod === AuthMethodEnum.COMMAND) {
+      const expired =
+        auth.cacheExpiryDateTime != null && new Date() > new Date(auth.cacheExpiryDateTime);
+
+      authorization = expired ? undefined : auth;
+    } else if (auth.ocpiAuthMethod === AuthMethodEnum.AUTH_REQUEST) {
+      authorization = undefined;
+    } else {
+      authorization = auth;
+    }
+    const skipAuthorizers = authorization?.ocpiAuthMethod === AuthMethodEnum.COMMAND;
 
     if (authorization) {
       // Use flat fields directly instead of authorization.idTokenInfo
@@ -464,17 +472,18 @@ export class EVDriverModule extends AbstractModule {
             }
           }
         }
-
-        for (const authorizer of this._authorizers) {
-          if (response.idTokenInfo.status !== OCPP2_0_1.AuthorizationStatusEnumType.Accepted) {
-            break;
+        if (!skipAuthorizers) {
+          for (const authorizer of this._authorizers) {
+            if (response.idTokenInfo.status !== OCPP2_0_1.AuthorizationStatusEnumType.Accepted) {
+              break;
+            }
+            const result: AuthorizationStatusEnumType = await authorizer.authorize(
+              authorization,
+              context,
+            );
+            response.idTokenInfo.status =
+              OCPP2_0_1_Mapper.AuthorizationMapper.fromAuthorizationStatusEnumType(result);
           }
-          const result: AuthorizationStatusEnumType = await authorizer.authorize(
-            authorization,
-            context,
-          );
-          response.idTokenInfo.status =
-            OCPP2_0_1_Mapper.AuthorizationMapper.fromAuthorizationStatusEnumType(result);
         }
       } else {
         // Blocked, Expired, Invalid, NoCredit, Unknown
