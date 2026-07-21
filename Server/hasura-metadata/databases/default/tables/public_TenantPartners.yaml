@@ -44,3 +44,19 @@ array_relationships:
         table:
           name: Cdrs
           schema: public
+  - name: RoamingPartners
+    using:
+      foreign_key_constraint_on:
+        column: tenantPartnerId
+        table:
+          name: RoamingPartners
+          schema: public
+select_permissions:
+  - role: roaming_reader
+    permission:
+      columns:
+        - id
+        - countryCode
+        - partyId
+      filter: {}
+    comment: Read-only role for the Patterm timeseries_api roaming proxy (TECH-1807); SELECT only, target of the Locations.OwnerTenantPartner / Tariffs.TenantPartner relationship filters.
