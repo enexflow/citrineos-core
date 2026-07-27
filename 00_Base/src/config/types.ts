@@ -296,6 +296,8 @@ export const systemConfigInputSchema = z.object({
   ocpiServer: z.object({
     host: z.string().default('localhost').optional(),
     port: z.number().int().min(1).default(8085).optional(),
+    version: z.string().default('2.2.1').optional(),
+    adminToken: z.string().optional(),
   }),
   userPreferences: z.object({
     telemetryConsent: z.boolean().default(false).optional(),
@@ -608,6 +610,8 @@ export const systemConfigSchema = z
     ocpiServer: z.object({
       host: z.string(),
       port: z.number().int().min(1),
+      version: z.string().default('2.2.1'),
+      adminToken: z.string().optional(),
     }),
     userPreferences: z.object({
       telemetryConsent: z.boolean().optional(),

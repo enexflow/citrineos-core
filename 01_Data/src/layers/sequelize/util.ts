@@ -61,6 +61,7 @@ import {
   AuthorizationTenant,
   AuthorizationLocation,
   RoamingPartner,
+  ConnectorTariff,
 } from './index.js';
 
 export class DefaultSequelizeInstance {
@@ -162,6 +163,7 @@ export class DefaultSequelizeInstance {
         ComponentVariable,
         CompositeSchedule,
         Connector,
+        ConnectorTariff,
         Evse,
         EvseType,
         EventData,
