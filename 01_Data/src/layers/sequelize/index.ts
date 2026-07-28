@@ -48,7 +48,7 @@ export {
 export { AuthorizationLocation } from './model/AuthorizationLocation.js';
 export { ChargingStationSequence } from './model/ChargingStationSequence/index.js';
 export { MessageInfo } from './model/MessageInfo/index.js';
-export { Tariff } from './model/Tariff/index.js';
+export { Tariff, ConnectorTariff } from './model/Tariff/index.js';
 export { Subscription } from './model/Subscription/index.js';
 export {
   Certificate,
@@ -96,6 +96,7 @@ export { SequelizeChargingStationSecurityInfoRepository } from './repository/Cha
 export { SequelizeChargingStationSequenceRepository } from './repository/ChargingStationSequence.js';
 export { SequelizeChangeConfigurationRepository } from './repository/ChangeConfiguration.js';
 export { SequelizeTenantRepository } from './repository/Tenant.js';
+export { SequelizeTenantPartnerRepository } from './repository/TenantPartner.js';
 export { SequelizeAsyncJobStatusRepository } from './repository/AsyncJobStatus.js';
 export { SequelizeServerNetworkProfileRepository } from './repository/ServerNetworkProfile.js';
 export { SequelizeInstallCertificateAttemptRepository } from './repository/InstallCertificateAttempt.js';

@@ -10,6 +10,7 @@ import type {
   ConnectorStatusEnumType,
   ConnectorTypeEnumType,
   EvseDto,
+  TariffDto,
   TenantDto,
 } from '@citrineos/base';
 import { DEFAULT_TENANT_ID, OCPP1_6_Namespace } from '@citrineos/base';
@@ -24,10 +25,10 @@ import {
   Model,
   Table,
 } from 'sequelize-typescript';
-import { Tariff } from '../Tariff/index.js';
 import { Tenant } from '../Tenant.js';
 import { ChargingStation } from './ChargingStation.js';
 import { Evse } from './Evse.js';
+import { ConnectorTariff } from '../Tariff/ConnectorTariff.js';
 
 @Table
 export class Connector extends Model implements ConnectorDto {
@@ -125,9 +126,6 @@ export class Connector extends Model implements ConnectorDto {
   @BelongsTo(() => Evse)
   declare evse?: EvseDto;
 
-  @HasMany(() => Tariff)
-  declare tariffs?: Tariff[];
-
   @ForeignKey(() => Tenant)
   @Column({
     type: DataType.INTEGER,
@@ -147,6 +145,13 @@ export class Connector extends Model implements ConnectorDto {
       instance.tenantId = DEFAULT_TENANT_ID;
     }
   }
+
+  @HasMany(() => ConnectorTariff)
+  declare connectorTariffs?: Array<{
+    id?: number;
+    tariffId: number;
+    tariff?: TariffDto;
+  }>;
 
   constructor(...args: any[]) {
     super(...args);

@@ -58,6 +58,7 @@ import {
   Subscription,
   Tariff,
   Tenant,
+  TenantPartner,
   TransactionEvent,
   VariableCharacteristics,
 } from '../layers/sequelize/index.js';
@@ -253,6 +254,12 @@ export interface ILocationRepository extends CrudRepository<Location> {
     chargingStation: ChargingStation,
   ): Promise<ChargingStation>;
   createOrUpdateConnector(tenantId: number, connector: Connector): Promise<Connector | undefined>;
+  createOrUpdateConnectorByOcpp201EvseType(
+    tenantId: number,
+    stationId: string,
+    ocpp201EvseType: OCPP2_0_1.EVSEType,
+    connectorUpdate: Partial<Connector>,
+  ): Promise<Connector | undefined>;
   updateAllConnectorsByQuery(
     tenantId: number,
     value: Partial<Connector>,
@@ -511,4 +518,12 @@ export interface IChangeConfigurationRepository extends CrudRepository<ChangeCon
 
 export interface ITenantRepository extends CrudRepository<Tenant> {
   createTenant(tenant: Tenant): Promise<Tenant>;
+}
+
+export interface ITenantPartnerRepository extends CrudRepository<TenantPartner> {
+  getHubPartner(
+    tenantId: number,
+    countryCode: string,
+    partyIds: string[],
+  ): Promise<TenantPartner | undefined>;
 }

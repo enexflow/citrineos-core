@@ -79,6 +79,8 @@ select_permissions:
         - tenantPartnerId
         - createdAt
         - updatedAt
+        - ocpiAuthMethod
+        - ocpiAuthReference
       filter:
         tenants:
           tenant:

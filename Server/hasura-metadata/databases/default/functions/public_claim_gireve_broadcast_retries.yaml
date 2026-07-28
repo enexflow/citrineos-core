@@ -1,0 +1,8 @@
+# SPDX-FileCopyrightText: 2025 Contributors to the CitrineOS Project
+#
+# SPDX-License-Identifier: Apache-2.0
+function:
+  name: claim_gireve_broadcast_retries
+  schema: public
+configuration:
+  exposed_as: mutation
