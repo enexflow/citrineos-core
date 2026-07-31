@@ -11,9 +11,6 @@ export const TariffSchema = BaseSchema.extend({
   stationId: z.string(),
   connectorId: z.number().int().nullable().optional(),
   currency: z.string().length(3), // CHAR(3)
-  pricePerKwh: z.number().min(0), // DECIMAL
-  pricePerMin: z.number().min(0).nullable().optional(), // DECIMAL
-  pricePerSession: z.number().min(0).nullable().optional(), // DECIMAL
   authorizationAmount: z.number().min(0).nullable().optional(), // DECIMAL
   paymentFee: z.number().min(0).nullable().optional(), // DECIMAL
   taxRate: z.number().min(0).nullable().optional(), // DECIMAL

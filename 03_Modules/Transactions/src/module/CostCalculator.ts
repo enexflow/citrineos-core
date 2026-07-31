@@ -47,22 +47,26 @@ export class CostCalculator {
     stationId: string,
     totalKwh: number,
   ): Promise<number> {
-    // TODO: This is a temp workaround. We need to refactor the calculation of totalCost when tariff
-    //  implementation is finalized
-    this._logger.debug(`Calculating total cost for ${stationId} station and ${totalKwh} kWh`);
-    const tariff: Tariff | undefined = await this._tariffRepository.findByStationId(
-      tenantId,
-      stationId,
-    );
-    if (tariff) {
-      this._logger.debug(`Tariff ${tariff.id} found for ${stationId} station`);
-      return Money.of(tariff.pricePerKwh, tariff.currency)
-        .multiply(totalKwh)
-        .roundToCurrencyScale()
-        .toNumber();
-    } else {
-      this._logger.error(`Tariff not found for ${stationId} station`);
-      return 0;
-    }
+    return 0;
+    // TODO: Remove this once the tariff implementation is finalized
+    // This code has been commented out because the tariff implementation is not yet finalized.
+    // the tariff logic right now if for OCPI only. Tariffs are linked to Connector of the Station.
+    // if we want to calculate the cost in the futur we need a new logic
+
+    // this._logger.debug(`Calculating total cost for ${stationId} station and ${totalKwh} kWh`);
+    // const tariff: Tariff | undefined = await this._tariffRepository.findByStationId(
+    //   tenantId,
+    //   stationId,
+    // );
+    // if (tariff) {
+    //   this._logger.debug(`Tariff ${tariff.id} found for ${stationId} station`);
+    //   return Money.of(tariff.pricePerKwh, tariff.currency)
+    //     .multiply(totalKwh)
+    //     .roundToCurrencyScale()
+    //     .toNumber();
+    // } else {
+    //   this._logger.error(`Tariff not found for ${stationId} station`);
+    //   return 0;
+    // }
   }
 }

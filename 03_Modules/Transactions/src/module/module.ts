@@ -350,18 +350,19 @@ export class TransactionsModule extends AbstractModule {
 
       if (message.payload.eventType === OCPP2_0_1.TransactionEventEnumType.Updated) {
         // I02 - Show EV Driver Running Total Cost During Charging
-        if (
-          transaction &&
-          transaction.isActive &&
-          transaction.totalKwh &&
-          this._sendCostUpdatedOnMeterValue
-        ) {
-          response.totalCost = await this._costCalculator.calculateTotalCost(
-            tenantId,
-            stationId,
-            transaction.totalKwh,
-          );
-        }
+        // TODO: Uncomment this once the tariff implementation is finalized
+        // if (
+        //   transaction &&
+        //   transaction.isActive &&
+        //   transaction.totalKwh &&
+        //   this._sendCostUpdatedOnMeterValue
+        // ) {
+        //   response.totalCost = await this._costCalculator.calculateTotalCost(
+        //     tenantId,
+        //     stationId,
+        //     transaction.totalKwh,
+        //   );
+        // }
 
         // I06 - Update Tariff Information During Transaction
         const tariffAvailableAttributes: VariableAttribute[] =
@@ -384,16 +385,17 @@ export class TransactionsModule extends AbstractModule {
         }
       }
 
-      if (
-        message.payload.eventType === OCPP2_0_1.TransactionEventEnumType.Ended &&
-        transaction.totalKwh
-      ) {
-        response.totalCost = await this._costCalculator.calculateTotalCost(
-          tenantId,
-          stationId,
-          transaction.totalKwh,
-        );
-      }
+      // TODO: Uncomment this once the tariff implementation is finalized
+      // if (
+      //   message.payload.eventType === OCPP2_0_1.TransactionEventEnumType.Ended &&
+      //   transaction.totalKwh
+      // ) {
+      //   response.totalCost = await this._costCalculator.calculateTotalCost(
+      //     tenantId,
+      //     stationId,
+      //     transaction.totalKwh,
+      //   );
+      // }
 
       // Store total cost in db
       if (response.totalCost && transaction) {
@@ -463,10 +465,10 @@ export class TransactionsModule extends AbstractModule {
 
       if (activeTransaction) {
         await this._transactionService.recalculateTotalKwh(activeTransaction, meterValuesCreated);
-        await this._costNotifier.calculateCostAndNotify(
-          activeTransaction,
-          message.context.tenantId,
-        );
+        // await this._costNotifier.calculateCostAndNotify(
+        //   activeTransaction,
+        //   message.context.tenantId,
+        // );
       }
     } else {
       await this._transactionService.createMeterValues(tenantId, meterValues);

@@ -51,40 +51,6 @@ export class Tariff extends Model implements TariffDto {
 
   @Column({
     type: DataType.DECIMAL,
-    allowNull: false,
-    validate: {
-      min: 0,
-    },
-    get(this: Tariff) {
-      return parseFloat(this.getDataValue('pricePerKwh'));
-    },
-  })
-  declare pricePerKwh: number;
-
-  @Column({
-    type: DataType.DECIMAL,
-    validate: {
-      min: 0,
-    },
-    get(this: Tariff) {
-      return parseFloat(this.getDataValue('pricePerMin'));
-    },
-  })
-  declare pricePerMin?: number | null;
-
-  @Column({
-    type: DataType.DECIMAL,
-    validate: {
-      min: 0,
-    },
-    get(this: Tariff) {
-      return parseFloat(this.getDataValue('pricePerSession'));
-    },
-  })
-  declare pricePerSession?: number | null;
-
-  @Column({
-    type: DataType.DECIMAL,
     validate: {
       min: 0,
     },
@@ -126,9 +92,6 @@ export class Tariff extends Model implements TariffDto {
     return {
       id: this.id,
       currency: this.currency,
-      pricePerKwh: this.pricePerKwh,
-      pricePerMin: this.pricePerMin,
-      pricePerSession: this.pricePerSession,
       taxRate: this.taxRate,
       authorizationAmount: this.authorizationAmount,
       paymentFee: this.paymentFee,
@@ -191,9 +154,6 @@ export interface TariffData {
   id: number;
   currency: string;
 
-  pricePerKwh: number;
-  pricePerMin?: number | null;
-  pricePerSession?: number | null;
   taxRate?: number | null;
 
   authorizationAmount?: number | null;

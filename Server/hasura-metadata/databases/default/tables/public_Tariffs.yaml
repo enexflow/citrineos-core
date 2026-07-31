@@ -51,9 +51,7 @@ select_permissions:
     permission:
       columns:
         - id
-        - pricePerKwh
         - currency
-        - stationId
         - ocpiTariffId
         - tenantId
         - tenantPartnerId
@@ -63,7 +61,6 @@ select_permissions:
     permission:
       columns:
         - currency
-        - stationId
         - id
         - ocpiTariffId
         - tenantId
@@ -71,9 +68,6 @@ select_permissions:
         - roamingPartnerId
         - authorizationAmount
         - paymentFee
-        - pricePerKwh
-        - pricePerMin
-        - pricePerSession
         - taxRate
         - tariffAltText
         - tariffType
@@ -94,15 +88,11 @@ insert_permissions:
     permission:
       columns:
         - currency
-        - stationId
         - ocpiTariffId
         - tenantId
         - tenantPartnerId
         - authorizationAmount
         - paymentFee
-        - pricePerKwh
-        - pricePerMin
-        - pricePerSession
         - taxRate
         - tariffAltText
         - tariffType
