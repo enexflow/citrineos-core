@@ -1,4 +1,6 @@
 // SPDX-FileCopyrightText: 2025 Contributors to the CitrineOS Project
+//
+// SPDX-License-Identifier: Apache-2.0
 import { describe, it, expect, vi } from 'vitest';
 import { DEFAULT_TENANT_ID } from '@citrineos/base';
 import { CostCalculator } from '../../src/module/CostCalculator.js';

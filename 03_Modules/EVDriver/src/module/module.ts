@@ -42,7 +42,6 @@ import type {
   IOCPPMessageRepository,
   IReservationRepository,
   ITariffRepository,
-  ITenantPartnerRepository,
   ITransactionEventRepository,
 } from '@citrineos/data';
 import {
@@ -51,7 +50,6 @@ import {
   OCPP2_0_1_Mapper,
   sequelize,
   SequelizeChargingStationSequenceRepository,
-  Tariff,
   VariableAttribute,
 } from '@citrineos/data';
 import {
@@ -509,24 +507,22 @@ export class EVDriverModule extends AbstractModule {
     }
 
     if (response.idTokenInfo.status === OCPP2_0_1.AuthorizationStatusEnumType.Accepted) {
-      const tariffAvailable: VariableAttribute[] =
-        await this._deviceModelRepository.readAllByQuerystring(context.tenantId, {
-          tenantId: context.tenantId,
-          stationId: message.context.stationId,
-          component_name: 'TariffCostCtrlr',
-          variable_name: 'Available',
-          variable_instance: 'Tariff',
-          type: OCPP2_0_1.AttributeEnumType.Actual,
-        });
+      await this._deviceModelRepository.readAllByQuerystring(context.tenantId, {
+        tenantId: context.tenantId,
+        stationId: message.context.stationId,
+        component_name: 'TariffCostCtrlr',
+        variable_name: 'Available',
+        variable_instance: 'Tariff',
+        type: OCPP2_0_1.AttributeEnumType.Actual,
+      });
 
-      const displayMessageAvailable: VariableAttribute[] =
-        await this._deviceModelRepository.readAllByQuerystring(context.tenantId, {
-          tenantId: context.tenantId,
-          stationId: message.context.stationId,
-          component_name: 'DisplayMessageCtrlr',
-          variable_name: 'Available',
-          type: OCPP2_0_1.AttributeEnumType.Actual,
-        });
+      await this._deviceModelRepository.readAllByQuerystring(context.tenantId, {
+        tenantId: context.tenantId,
+        stationId: message.context.stationId,
+        component_name: 'DisplayMessageCtrlr',
+        variable_name: 'Available',
+        type: OCPP2_0_1.AttributeEnumType.Actual,
+      });
 
       // TODO: Remove this once the tariff implementation is finalized
       // This code has been commented out because the tariff implementation is not yet finalized.
