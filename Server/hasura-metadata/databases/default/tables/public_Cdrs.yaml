@@ -8,12 +8,18 @@ object_relationships:
   - name: Tenant
     using:
       foreign_key_constraint_on: tenantId
-  - name: TenantPartner
+  - name: FromTenantPartner
     using:
-      foreign_key_constraint_on: tenantPartnerId
+      foreign_key_constraint_on: fromTenantPartnerId
+  - name: ToTenantPartner
+    using:
+      foreign_key_constraint_on: toTenantPartnerId
   - name: RoamingPartner
     using:
       foreign_key_constraint_on: roamingPartnerId
+  - name: Transaction
+    using:
+      foreign_key_constraint_on: transactionId
 select_permissions:
   - role: user
     permission:
@@ -54,6 +60,10 @@ select_permissions:
         - roamingPartnerId
         - createdAt
         - updatedAt
+        - fromTenantPartnerId
+        - toTenantPartnerId
+        - transactionId
+        - successfullySentAt
       filter:
         tenantId:
           _eq: x-hasura-tenant-id
