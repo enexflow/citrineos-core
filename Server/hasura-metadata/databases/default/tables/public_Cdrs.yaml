@@ -56,7 +56,6 @@ select_permissions:
         - homeChargingCompensation
         - lastUpdated
         - tenantId
-        - tenantPartnerId
         - roamingPartnerId
         - createdAt
         - updatedAt
