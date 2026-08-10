@@ -30,12 +30,6 @@ export class Tariff extends Model implements TariffDto {
   })
   declare ocpiTariffId?: string | null;
 
-  @Column({
-    type: DataType.STRING,
-    unique: true,
-  })
-  declare stationId: string;
-
   @ForeignKey(() => Connector)
   @Column(DataType.INTEGER)
   declare connectorId?: number | null;

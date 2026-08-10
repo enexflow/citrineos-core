@@ -330,19 +330,20 @@ export class TransactionsModule extends AbstractModule {
     if (response) {
       const messageConfirmation = await this.sendCallResultWithMessage(message, response);
       this._logger.debug('Transaction response sent: ', messageConfirmation);
+      // TODO: Uncomment this once the tariff implementation is finalized
       // If the transaction is accepted and interval is set, start the cost update
-      if (
-        transactionEvent.eventType === OCPP2_0_1.TransactionEventEnumType.Started &&
-        response.idTokenInfo?.status === OCPP2_0_1.AuthorizationStatusEnumType.Accepted &&
-        this._costUpdatedInterval
-      ) {
-        this._costNotifier.notifyWhileActive(
-          stationId,
-          transactionId,
-          message.context.tenantId,
-          this._costUpdatedInterval,
-        );
-      }
+      // if (
+      //   transactionEvent.eventType === OCPP2_0_1.TransactionEventEnumType.Started &&
+      //   response.idTokenInfo?.status === OCPP2_0_1.AuthorizationStatusEnumType.Accepted &&
+      //   this._costUpdatedInterval
+      // ) {
+      //   this._costNotifier.notifyWhileActive(
+      //     stationId,
+      //     transactionId,
+      //     message.context.tenantId,
+      //     this._costUpdatedInterval,
+      //   );
+      // }
     } else {
       const response: OCPP2_0_1.TransactionEventResponse = {
         // TODO determine how to set chargingPriority and updatedPersonalMessage for anonymous users
