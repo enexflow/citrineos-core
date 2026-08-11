@@ -43,4 +43,4 @@ jobs:
       - name: Publish all packages
         run: bash scripts/publish-to-npm.sh ${{ steps.version.outputs.version }}
         env:
-          NPM_TAG: ${{ github.ref_name == 'tech-1927-npm-publish-trusted-publisher-test' && 'prerelease' || 'prelase' }}
+          NPM_TAG: ${{ github.ref_name == 'env/prod' && 'prod' || 'staging' }}
