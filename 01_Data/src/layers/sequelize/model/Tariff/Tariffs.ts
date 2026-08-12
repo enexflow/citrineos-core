@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-import type { ConnectorDto, TariffDto, TenantDto } from '@citrineos/base';
+import type { TariffDto, TenantDto } from '@citrineos/base';
 import { DEFAULT_TENANT_ID, OCPP2_0_1_Namespace } from '@citrineos/base';
 import type { CreationOptional } from 'sequelize';
 import {
@@ -15,7 +15,6 @@ import {
   Model,
   Table,
 } from 'sequelize-typescript';
-import { Connector } from '../Location/index.js';
 import { Tenant } from '../Tenant.js';
 import { RoamingPartner } from '../RoamingPartner.js';
 import { TenantPartner } from '../TenantPartner.js';
@@ -29,13 +28,6 @@ export class Tariff extends Model implements TariffDto {
     allowNull: true,
   })
   declare ocpiTariffId?: string | null;
-
-  @ForeignKey(() => Connector)
-  @Column(DataType.INTEGER)
-  declare connectorId?: number | null;
-
-  @BelongsTo(() => Connector)
-  declare connector?: ConnectorDto | null;
 
   @Column({
     type: DataType.CHAR(3),

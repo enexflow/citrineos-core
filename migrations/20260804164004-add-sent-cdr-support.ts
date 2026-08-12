@@ -22,8 +22,7 @@ export default {
       DROP INDEX IF EXISTS "idx_cdrs_tenant_partner_id";
 
       ALTER TABLE "Cdrs"
-        DROP CONSTRAINT IF EXISTS "Cdrs_tenantPartnerId_fkey",
-        DROP CONSTRAINT IF EXISTS "cdrs_tenantPartnerId_fkey";
+        DROP CONSTRAINT IF EXISTS "Cdrs_tenantPartnerId_fkey";
 
       ALTER TABLE "Cdrs"
         ADD COLUMN IF NOT EXISTS "fromTenantPartnerId" INTEGER

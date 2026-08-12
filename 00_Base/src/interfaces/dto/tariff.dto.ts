@@ -8,7 +8,6 @@ import { BaseSchema } from './types/base.dto.js';
 export const TariffSchema = BaseSchema.extend({
   id: z.number().int().optional(),
   ocpiTariffId: z.string().max(36).nullable().optional(), // OCPI CiString(36)
-  connectorId: z.number().int().nullable().optional(),
   currency: z.string().length(3), // CHAR(3)
   authorizationAmount: z.number().min(0).nullable().optional(), // DECIMAL
   paymentFee: z.number().min(0).nullable().optional(), // DECIMAL
@@ -33,7 +32,6 @@ export const TariffCreateSchema = TariffSchema.omit({
   id: true,
   ocpiTariffId: true,
   tenant: true,
-  connector: true,
   updatedAt: true,
   createdAt: true,
 });
