@@ -58,6 +58,7 @@
 - "!include public_AuthorizationTenants.yaml"
 - "!include public_AuthorizationLocations.yaml"
 - "!include public_RoamingPartners.yaml"
-- "!include public_OCPIBilling.yaml"
+- "!include public_OCPIBillingEmsp.yaml"
+- "!include public_OCPIBillingCpo.yaml"
 - "!include public_GireveBroadcastRetryQueues.yaml"
 - "!include public_OCPISessionsWithCdr.yaml"
