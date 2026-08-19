@@ -192,7 +192,7 @@
         "signedMeterData": {
           "description": "Base64 encoded, contains the signed data which might contain more then just the meter value. It can contain information like timestamps, reference to a customer etc.\r\n",
           "type": "string",
-          "maxLength": 2500,
+          "maxLength": 32768,
           "pattern": "^[A-Za-z0-9+/]*={0,2}$"
         },
         "signingMethod": {
