@@ -392,9 +392,11 @@ export class MonitoringOcpp201Api
   ): Promise<IMessageConfirmation[]> {
     const confirmations: IMessageConfirmation[] = [];
     const allData = requestData[dataKey] as any[];
+    const batches = getBatches(allData, itemsPerMessage);
+    // Only reuse the correlation id if there is one batch, otherwise we lose one correlation id = one ocpp message
+    const batchCorrelationId = batches.size === 1 ? correlationId : undefined;
 
-    // Same correlationId is reused for every batch: they're all one logical caller request.
-    for (const [batchIndex, batch] of getBatches(allData, itemsPerMessage)) {
+    for (const [batchIndex, batch] of batches) {
       const batchRequest = { ...requestData, [dataKey]: batch };
       try {
         const confirmation = await this._module.sendCall(
@@ -404,7 +406,7 @@ export class MonitoringOcpp201Api
           action,
           batchRequest,
           callbackUrl,
-          correlationId,
+          batchCorrelationId,
         );
         confirmations.push({
           success: confirmation.success,
