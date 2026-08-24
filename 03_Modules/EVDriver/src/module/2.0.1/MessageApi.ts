@@ -38,12 +38,14 @@ export class EVDriverOcpp201Api
   @AsMessageEndpoint(
     OCPP2_0_1_CallAction.RequestStartTransaction,
     OCPP2_0_1.RequestStartTransactionRequestSchema,
+    { correlationId: { type: 'string' } },
   )
   async requestStartTransaction(
     identifier: string[],
     request: OCPP2_0_1.RequestStartTransactionRequest,
     callbackUrl?: string,
     tenantId: number = DEFAULT_TENANT_ID,
+    extraQueries?: Record<string, any>,
   ): Promise<IMessageConfirmation[]> {
     const results: IMessageConfirmation[] = [];
 
@@ -124,6 +126,7 @@ export class EVDriverOcpp201Api
           OCPP2_0_1_CallAction.RequestStartTransaction,
           request,
           callbackUrl,
+          extraQueries?.correlationId,
         );
 
         if (payloadMessage) {
@@ -149,12 +152,14 @@ export class EVDriverOcpp201Api
   @AsMessageEndpoint(
     OCPP2_0_1_CallAction.RequestStopTransaction,
     OCPP2_0_1.RequestStopTransactionRequestSchema,
+    { correlationId: { type: 'string' } },
   )
   async requestStopTransaction(
     identifier: string[],
     request: OCPP2_0_1.RequestStopTransactionRequest,
     callbackUrl?: string,
     tenantId: number = DEFAULT_TENANT_ID,
+    extraQueries?: Record<string, any>,
   ): Promise<IMessageConfirmation[]> {
     const results = identifier.map((id) =>
       this._module.sendCall(
@@ -164,6 +169,7 @@ export class EVDriverOcpp201Api
         OCPP2_0_1_CallAction.RequestStopTransaction,
         request,
         callbackUrl,
+        extraQueries?.correlationId,
       ),
     );
     return Promise.all(results);
