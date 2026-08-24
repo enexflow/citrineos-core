@@ -199,12 +199,14 @@ export class SmartChargingOcpp201Api
   @AsMessageEndpoint(
     OCPP2_0_1_CallAction.SetChargingProfile,
     OCPP2_0_1.SetChargingProfileRequestSchema,
+    { correlationId: { type: 'string' } },
   )
   async setChargingProfile(
     identifier: string[],
     request: OCPP2_0_1.SetChargingProfileRequest,
     callbackUrl?: string,
     tenantId: number = DEFAULT_TENANT_ID,
+    extraQueries?: Record<string, any>,
   ): Promise<IMessageConfirmation[]> {
     // Process each station individually
     return Promise.all(
@@ -501,7 +503,9 @@ export class SmartChargingOcpp201Api
           ChargingLimitSourceEnum.CSO,
         );
 
-        // Finally, send the call to the station
+        // Finally, send the call to the station. A caller-supplied correlationId (e.g. from
+        // tsapi) is forwarded as-is and becomes the OCPP-J MessageId of this CALL, so it can be
+        // traced end-to-end; sendCall falls back to its own uuidv4() when none is given.
         return this._module.sendCall(
           id,
           tenantId,
@@ -509,6 +513,7 @@ export class SmartChargingOcpp201Api
           OCPP2_0_1_CallAction.SetChargingProfile,
           request,
           callbackUrl,
+          extraQueries?.correlationId,
         );
       }),
     );
