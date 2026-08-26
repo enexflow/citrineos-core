@@ -385,7 +385,7 @@ export class SmartChargingOcpp201Api
                 const existedValidTo = existedProfile.validTo
                   ? new Date(existedProfile.validTo)
                   : null;
-                if (!existedValidTo || existedValidTo.getTime() >= validTo.getTime()) {
+                if (!existedValidTo || existedValidTo.getTime() > validTo.getTime()) {
                   return {
                     success: false,
                     payload:
