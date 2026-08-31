@@ -358,10 +358,7 @@ export class SmartChargingOcpp201Api
             }
           }
 
-          // Check for existing profiles with the same stack level and purpose.
-          // enexflow divergence: OCPP 2.0.1 Part 2 K01.FR.35 forbids two overlapping
-          // profiles with the same stack level and purpose, but our own smart charging
-          // logic supersedes them, so we accept and only trace the overlap.
+          // Check for existing profiles with the same stack level and purpose
           const existedChargingProfiles =
             await this._module.chargingProfileRepository.readAllByQuery(tenantId, {
               where: {
@@ -373,13 +370,30 @@ export class SmartChargingOcpp201Api
                 tenantId,
               },
             });
+          this._logger.info(
+            `Found existing charging profiles: ${JSON.stringify(existedChargingProfiles)}`,
+          );
           if (existedChargingProfiles.length > 0) {
-            this._logger.info(
-              `Accepting charging profile ${chargingProfile.id} on station ${id} evse ${request.evseId}: ` +
-                `it overlaps ${existedChargingProfiles.length} active profile(s) ` +
-                `(ids: ${existedChargingProfiles.map((p) => p.id).join(', ')}) ` +
-                `with stackLevel ${chargingProfile.stackLevel} and purpose ${chargingProfile.chargingProfilePurpose}.`,
-            );
+            if (!validTo) {
+              return {
+                success: false,
+                payload:
+                  'No two charging profiles with the same stack level and purpose can be valid at the same time.',
+              };
+            } else {
+              for (const existedProfile of existedChargingProfiles) {
+                const existedValidTo = existedProfile.validTo
+                  ? new Date(existedProfile.validTo)
+                  : null;
+                if (!existedValidTo || existedValidTo.getTime() > validTo.getTime()) {
+                  return {
+                    success: false,
+                    payload:
+                      'No two charging profiles with the same stack level and purpose can be valid at the same time.',
+                  };
+                }
+              }
+            }
           }
         }
 
