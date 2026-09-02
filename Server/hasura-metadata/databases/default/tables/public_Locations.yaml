@@ -42,8 +42,9 @@ select_permissions:
         - coordinates
         - openingHours
         - tenantId
+        - deletedAt
       filter: {}
-    comment: Read-only role for the Patterm timeseries_api roaming proxy (TECH-1807); SELECT only, cross-tenant (proxy filters by partner in-query).
+    comment: Read-only role for the Patterm timeseries_api roaming proxy (TECH-1807); SELECT only, cross-tenant (proxy filters by partner in-query). deletedAt is exposed so the proxy can exclude soft-deleted Locations (TECH-2138).
   - role: user
     permission:
       columns:

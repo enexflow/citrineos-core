@@ -45,6 +45,15 @@ array_relationships:
           name: Tariffs
           schema: public
 select_permissions:
+  - role: roaming_reader
+    permission:
+      columns:
+        - id
+        - countryCode
+        - partyId
+        - tenantPartnerId
+      filter: {}
+    comment: Read-only role for the Patterm timeseries_api roaming proxy (TECH-2138); a hub-fed Location carries the hub as OwnerTenantPartner, so the real CPO can only be read here.
   - role: user
     permission:
       columns:
