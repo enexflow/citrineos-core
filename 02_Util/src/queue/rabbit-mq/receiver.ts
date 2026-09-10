@@ -54,6 +54,8 @@ export class RabbitMqReceiver extends AbstractMessageHandler {
   private _abortReconnectController?: AbortController;
   private _circuitBreaker: CircuitBreaker;
   private _reconnectInterval?: NodeJS.Timeout;
+  /** Serializes AMQP channel operations; amqplib channels are not concurrency-safe. */
+  private _channelOperationChain: Promise<unknown> = Promise.resolve();
 
   constructor(
     config: SystemConfig,
@@ -107,6 +109,16 @@ export class RabbitMqReceiver extends AbstractMessageHandler {
       return true;
     }
 
+    return this._enqueueChannelOperation(() =>
+      this._subscribeInternal(identifier, actions, filter),
+    );
+  }
+
+  private async _subscribeInternal(
+    identifier: string,
+    actions?: CallAction[],
+    filter?: { [k: string]: string },
+  ): Promise<boolean> {
     const exchange = this._config.util.messageBroker.amqp?.exchange as string;
     const queueName = `${RabbitMqReceiver.QUEUE_PREFIX}${identifier}`;
 
@@ -118,10 +130,17 @@ export class RabbitMqReceiver extends AbstractMessageHandler {
         }
       : { 'x-match': 'all' };
 
-    if (!this._channel) {
-      throw new Error('RabbitMQ is down: cannot subscribe.');
-    }
-    const channel = this._channel;
+    const channel = this._requireChannel();
+
+    // Define cache keys
+    const cacheKey = `${RabbitMqReceiver.CACHE_PREFIX}${identifier}`;
+    const metadataKey = `${RabbitMqReceiver.METADATA_PREFIX}${identifier}`;
+
+    // Retrieve cached queue names before asserting the queue so we only start one consumer.
+    const cachedQueues = await this._cache
+      .get<Array<string>>(cacheKey, CacheNamespace.Other, () => Array<string>)
+      .then((value) => value ?? []);
+    const queueAlreadyRegistered = cachedQueues.includes(queueName);
 
     // Assert exchange and queue
     await channel.assertExchange(exchange, 'headers', { durable: false });
@@ -150,28 +169,17 @@ export class RabbitMqReceiver extends AbstractMessageHandler {
       );
     }
 
-    // Start consuming messages
-    await channel.consume(queueName, (msg) => this._onMessage(msg, channel));
+    // Start consuming messages once per queue (additional bindings share the same consumer).
+    if (!queueAlreadyRegistered) {
+      await channel.consume(queueName, (msg) => this._onMessage(msg, channel));
+    }
 
-    // Define cache keys
-    const cacheKey = `${RabbitMqReceiver.CACHE_PREFIX}${identifier}`;
-    const metadataKey = `${RabbitMqReceiver.METADATA_PREFIX}${identifier}`;
-
-    // Retrieve cached queue names
-    const cachedQueues = await this._cache
-      .get<Array<string>>(cacheKey, CacheNamespace.Other, () => Array<string>)
-      .then((value) => {
-        if (value) {
-          if (!value.includes(queueName)) {
-            value.push(queueName);
-          }
-          return value;
-        }
-        return new Array<string>(queueName);
-      });
+    const updatedCachedQueues = queueAlreadyRegistered
+      ? cachedQueues
+      : [...cachedQueues, queueName];
 
     // Add queue name to cache
-    await this._cache.set(cacheKey, JSON.stringify(cachedQueues), CacheNamespace.Other);
+    await this._cache.set(cacheKey, JSON.stringify(updatedCachedQueues), CacheNamespace.Other);
 
     // Store subscription metadata for re-subscription after reconnect
     const subscriptionMetadata: SubscriptionMetadata = {
@@ -223,59 +231,56 @@ export class RabbitMqReceiver extends AbstractMessageHandler {
   }
 
   unsubscribe(identifier: string): Promise<boolean> {
+    return this._enqueueChannelOperation(() => this._unsubscribeInternal(identifier));
+  }
+
+  private async _unsubscribeInternal(identifier: string): Promise<boolean> {
     const cacheKey = `${RabbitMqReceiver.CACHE_PREFIX}${identifier}`;
     const metadataKey = `${RabbitMqReceiver.METADATA_PREFIX}${identifier}`;
-    return this._cache
-      .get<Array<string>>(cacheKey, CacheNamespace.Other, () => Array<string>)
-      .then(async (queues) => {
-        if (queues) {
-          if (!this._channel) {
-            throw new Error('RabbitMQ is down: cannot unsubscribe.');
-          }
-          const channel = this._channel;
-          this._channel = channel;
-          for (const queue of queues) {
-            await channel.unbindQueue(
-              queue,
-              this._config.util.messageBroker.amqp?.exchange || '',
-              '',
-            );
-            const messageCount = await this._channel?.deleteQueue(queue);
-            this._logger.info(
-              `Queue ${identifier} deleted with ${messageCount?.messageCount} messages remaining.`,
-            );
-          }
-          // Remove the cache entries after successfully deleting all queues
-          await this._cache.remove(cacheKey, CacheNamespace.Other);
-          await this._cache.remove(metadataKey, CacheNamespace.Other);
+    const queues = await this._cache.get<Array<string>>(
+      cacheKey,
+      CacheNamespace.Other,
+      () => Array<string>,
+    );
 
-          // Remove identifier from registry
-          const registry = await this._cache.get<Array<string>>(
-            RabbitMqReceiver.REGISTRY_KEY,
-            CacheNamespace.Other,
-            () => Array<string>,
-          );
-          if (registry) {
-            const updatedRegistry = registry.filter((id) => id !== identifier);
-            if (updatedRegistry.length === 0) {
-              await this._cache.remove(RabbitMqReceiver.REGISTRY_KEY, CacheNamespace.Other);
-            } else {
-              await this._cache.set(
-                RabbitMqReceiver.REGISTRY_KEY,
-                JSON.stringify(updatedRegistry),
-                CacheNamespace.Other,
-              );
-            }
-          }
+    if (!queues) {
+      this._logger.warn(`Failed to delete queue for ${identifier}, queue name not found in cache.`);
+      return false;
+    }
 
-          return true;
-        } else {
-          this._logger.warn(
-            `Failed to delete queue for ${identifier}, queue name not found in cache.`,
-          );
-          return false;
-        }
-      });
+    const channel = this._requireChannel();
+    for (const queue of queues) {
+      await channel.unbindQueue(queue, this._config.util.messageBroker.amqp?.exchange || '', '');
+      const messageCount = await channel.deleteQueue(queue);
+      this._logger.info(
+        `Queue ${identifier} deleted with ${messageCount?.messageCount} messages remaining.`,
+      );
+    }
+
+    // Remove the cache entries after successfully deleting all queues
+    await this._cache.remove(cacheKey, CacheNamespace.Other);
+    await this._cache.remove(metadataKey, CacheNamespace.Other);
+
+    // Remove identifier from registry
+    const registry = await this._cache.get<Array<string>>(
+      RabbitMqReceiver.REGISTRY_KEY,
+      CacheNamespace.Other,
+      () => Array<string>,
+    );
+    if (registry) {
+      const updatedRegistry = registry.filter((id) => id !== identifier);
+      if (updatedRegistry.length === 0) {
+        await this._cache.remove(RabbitMqReceiver.REGISTRY_KEY, CacheNamespace.Other);
+      } else {
+        await this._cache.set(
+          RabbitMqReceiver.REGISTRY_KEY,
+          JSON.stringify(updatedRegistry),
+          CacheNamespace.Other,
+        );
+      }
+    }
+
+    return true;
   }
 
   shutdown(): Promise<void> {
@@ -317,9 +322,7 @@ export class RabbitMqReceiver extends AbstractMessageHandler {
         if (exchange) {
           await channel.assertExchange(exchange, 'headers', { durable: false });
         }
-        channel.on('error', (err) => {
-          this._logger.error('AMQP channel error', err);
-        });
+        this._setupChannelListeners(channel);
         this._setupConnectionListeners();
         this._circuitBreaker.triggerSuccess();
         // Re-subscribe to all cached subscriptions after successful reconnection
@@ -406,6 +409,37 @@ export class RabbitMqReceiver extends AbstractMessageHandler {
         this._logger.warn('Unknown circuit breaker state:', state);
         break;
     }
+  }
+
+  private _enqueueChannelOperation<T>(operation: () => Promise<T>): Promise<T> {
+    const run = this._channelOperationChain.then(() => operation());
+    this._channelOperationChain = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  private _requireChannel(): amqplib.Channel {
+    if (!this._channel) {
+      throw new Error('RabbitMQ is down: cannot use channel.');
+    }
+    return this._channel;
+  }
+
+  private _setupChannelListeners(channel: amqplib.Channel) {
+    channel.removeAllListeners('error');
+    channel.removeAllListeners('close');
+    channel.on('error', (err) => {
+      this._logger.error('AMQP channel error', err);
+    });
+    channel.on('close', () => {
+      this._logger.warn('AMQP channel closed. Triggering reconnect.');
+      if (this._channel === channel) {
+        this._channel = undefined;
+      }
+      void this._handleDisconnect();
+    });
   }
 
   /**
