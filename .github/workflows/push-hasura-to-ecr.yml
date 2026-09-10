@@ -2,7 +2,7 @@ name: Push docker images
 
 on:
   push:
-    branches: [ env/staging, env/prod, env/demo]
+    branches: [ env/dev, env/staging, env/prod, env/demo]
     paths:
       - "Server/hasura-metadata/**"
       - "Server/hasura.Dockerfile"

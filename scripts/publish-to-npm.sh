@@ -55,6 +55,10 @@ rewrite_package_json() {
 
     pkg.name = pkg.name.replace('@citrineos/', '@zetra/citrineos-');
     pkg.version = FORK_VERSION;
+    pkg.repository = {
+      type: 'git',
+      url: 'git+https://github.com/enexflow/citrineos-core.git'
+    };
 
     const rewriteDeps = (deps) => {
       if (!deps) return deps;

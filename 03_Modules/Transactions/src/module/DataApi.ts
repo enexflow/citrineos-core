@@ -109,9 +109,6 @@ export class TransactionsDataApi
     return Tariff.newInstance({
       id: request.id,
       currency: request.currency,
-      pricePerKwh: request.pricePerKwh,
-      pricePerMin: request.pricePerMin,
-      pricePerSession: request.pricePerSession,
       taxRate: request.taxRate,
       authorizationAmount: request.authorizationAmount,
       paymentFee: request.paymentFee,

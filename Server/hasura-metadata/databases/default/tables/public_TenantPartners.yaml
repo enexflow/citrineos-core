@@ -37,10 +37,17 @@ array_relationships:
         table:
           name: Tariffs
           schema: public
-  - name: Cdrs
+  - name: FromCdrs
     using:
       foreign_key_constraint_on:
-        column: tenantPartnerId
+        column: fromTenantPartnerId
+        table:
+          name: Cdrs
+          schema: public
+  - name: ToCdrs
+    using:
+      foreign_key_constraint_on:
+        column: toTenantPartnerId
         table:
           name: Cdrs
           schema: public

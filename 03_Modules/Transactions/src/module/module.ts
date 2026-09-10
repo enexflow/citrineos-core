@@ -330,19 +330,20 @@ export class TransactionsModule extends AbstractModule {
     if (response) {
       const messageConfirmation = await this.sendCallResultWithMessage(message, response);
       this._logger.debug('Transaction response sent: ', messageConfirmation);
+      // TODO: Uncomment this once the tariff implementation is finalized
       // If the transaction is accepted and interval is set, start the cost update
-      if (
-        transactionEvent.eventType === OCPP2_0_1.TransactionEventEnumType.Started &&
-        response.idTokenInfo?.status === OCPP2_0_1.AuthorizationStatusEnumType.Accepted &&
-        this._costUpdatedInterval
-      ) {
-        this._costNotifier.notifyWhileActive(
-          stationId,
-          transactionId,
-          message.context.tenantId,
-          this._costUpdatedInterval,
-        );
-      }
+      // if (
+      //   transactionEvent.eventType === OCPP2_0_1.TransactionEventEnumType.Started &&
+      //   response.idTokenInfo?.status === OCPP2_0_1.AuthorizationStatusEnumType.Accepted &&
+      //   this._costUpdatedInterval
+      // ) {
+      //   this._costNotifier.notifyWhileActive(
+      //     stationId,
+      //     transactionId,
+      //     message.context.tenantId,
+      //     this._costUpdatedInterval,
+      //   );
+      // }
     } else {
       const response: OCPP2_0_1.TransactionEventResponse = {
         // TODO determine how to set chargingPriority and updatedPersonalMessage for anonymous users
@@ -350,18 +351,19 @@ export class TransactionsModule extends AbstractModule {
 
       if (message.payload.eventType === OCPP2_0_1.TransactionEventEnumType.Updated) {
         // I02 - Show EV Driver Running Total Cost During Charging
-        if (
-          transaction &&
-          transaction.isActive &&
-          transaction.totalKwh &&
-          this._sendCostUpdatedOnMeterValue
-        ) {
-          response.totalCost = await this._costCalculator.calculateTotalCost(
-            tenantId,
-            stationId,
-            transaction.totalKwh,
-          );
-        }
+        // TODO: Uncomment this once the tariff implementation is finalized
+        // if (
+        //   transaction &&
+        //   transaction.isActive &&
+        //   transaction.totalKwh &&
+        //   this._sendCostUpdatedOnMeterValue
+        // ) {
+        //   response.totalCost = await this._costCalculator.calculateTotalCost(
+        //     tenantId,
+        //     stationId,
+        //     transaction.totalKwh,
+        //   );
+        // }
 
         // I06 - Update Tariff Information During Transaction
         const tariffAvailableAttributes: VariableAttribute[] =
@@ -384,16 +386,17 @@ export class TransactionsModule extends AbstractModule {
         }
       }
 
-      if (
-        message.payload.eventType === OCPP2_0_1.TransactionEventEnumType.Ended &&
-        transaction.totalKwh
-      ) {
-        response.totalCost = await this._costCalculator.calculateTotalCost(
-          tenantId,
-          stationId,
-          transaction.totalKwh,
-        );
-      }
+      // TODO: Uncomment this once the tariff implementation is finalized
+      // if (
+      //   message.payload.eventType === OCPP2_0_1.TransactionEventEnumType.Ended &&
+      //   transaction.totalKwh
+      // ) {
+      //   response.totalCost = await this._costCalculator.calculateTotalCost(
+      //     tenantId,
+      //     stationId,
+      //     transaction.totalKwh,
+      //   );
+      // }
 
       // Store total cost in db
       if (response.totalCost && transaction) {
@@ -463,10 +466,10 @@ export class TransactionsModule extends AbstractModule {
 
       if (activeTransaction) {
         await this._transactionService.recalculateTotalKwh(activeTransaction, meterValuesCreated);
-        await this._costNotifier.calculateCostAndNotify(
-          activeTransaction,
-          message.context.tenantId,
-        );
+        // await this._costNotifier.calculateCostAndNotify(
+        //   activeTransaction,
+        //   message.context.tenantId,
+        // );
       }
     } else {
       await this._transactionService.createMeterValues(tenantId, meterValues);
