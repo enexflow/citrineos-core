@@ -1,6 +1,11 @@
 name: Push docker images
 
 on:
+  # Indispensable a la creation d'un environnement : un push de creation de branche ne porte
+  # aucun commit, donc le filtre `paths:` ci-dessous ne matche rien et l'image n'est jamais
+  # construite pour la nouvelle branche. Sans declencheur manuel il n'y a aucun moyen de
+  # rattraper autrement qu'en poussant un commit factice.
+  workflow_dispatch:
   push:
     branches: [ env/dev, env/staging, env/prod, env/demo]
     paths:
