@@ -149,15 +149,17 @@ services:
       start_period: 60s
 
   # TECH-2190: second Hasura instance behind the same local proxy, on the
-  # citrine-b/graphql-engine-b DB and metadata - stateless, no host port.
+  # same DB as graphql-engine - stateless, no host port. Plain image (no
+  # cli-migrations-v3): only one instance may apply the static metadata
+  # snapshot at boot, or the second one fails with a metadata version
+  # conflict against the catalog the first already advanced. This one just
+  # serves, staying in sync via Hasura's schema-sync polling.
   graphql-engine-b:
-    image: hasura/graphql-engine:v2.40.3.cli-migrations-v3
-    volumes:
-      - ./hasura-metadata:/hasura-metadata
+    image: hasura/graphql-engine:v2.40.3
     expose:
       - 8080
     depends_on:
-      citrine:
+      graphql-engine:
         condition: service_healthy
     environment:
       HASURA_GRAPHQL_DATABASE_URL: postgres://citrine:citrine@ocpp-db:5432/citrine
