@@ -30,6 +30,11 @@ import { WebSocket, WebSocketServer } from 'ws';
 import type { IUpgradeError } from './authenticator/errors/IUpgradeError.js';
 
 export class WebsocketNetworkConnection implements INetworkConnection {
+  // Multiplier applied to a server's pingInterval to derive the TTL of its
+  // Connections cache entries, so a crashed instance's entries expire on their
+  // own instead of blocking reconnection on another instance indefinitely.
+  private static readonly CONNECTION_TTL_PING_INTERVAL_MULTIPLIER = 3;
+
   protected _cache: ICache;
   protected _config: SystemConfig;
   protected _logger: Logger<ILogObj>;
@@ -371,6 +376,7 @@ export class WebsocketNetworkConnection implements INetworkConnection {
           identifier,
           JSON.stringify(websocketConnection),
           CacheNamespace.Connections,
+          pingInterval * WebsocketNetworkConnection.CONNECTION_TTL_PING_INTERVAL_MULTIPLIER,
         );
         registered =
           registered && (await this._router.registerConnection(tenantId, stationId, ws.protocol));
@@ -440,8 +446,13 @@ export class WebsocketNetworkConnection implements INetworkConnection {
       );
 
       if (clientConnection) {
-        // Remove expiration for connection and send ping to client in pingInterval seconds.
-        await this._cache.set(identifier, clientConnection, CacheNamespace.Connections);
+        // Refresh TTL for connection and send ping to client in pingInterval seconds.
+        await this._cache.set(
+          identifier,
+          clientConnection,
+          CacheNamespace.Connections,
+          pingInterval * WebsocketNetworkConnection.CONNECTION_TTL_PING_INTERVAL_MULTIPLIER,
+        );
         this._ping(identifier, ws, pingInterval);
       } else {
         this._logger.debug('Pong received for', identifier, 'but client is not alive');
@@ -503,12 +514,12 @@ export class WebsocketNetworkConnection implements INetworkConnection {
       );
       if (clientConnection) {
         this._logger.debug('Pinging client', identifier);
-        // Set connection expiration and send ping to client
+        // Refresh TTL for connection and send ping to client
         await this._cache.set(
           identifier,
           clientConnection,
           CacheNamespace.Connections,
-          pingInterval * 2,
+          pingInterval * WebsocketNetworkConnection.CONNECTION_TTL_PING_INTERVAL_MULTIPLIER,
         );
         ws.ping();
       } else {
