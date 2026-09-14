@@ -54,8 +54,11 @@ services:
       dockerfile: ./Server/deploy.Dockerfile
     working_dir: /usr/local/apps/citrineos
     entrypoint: ['/bin/sh', '-c']
+    # Plain replica, not a migrator: running `migrate` on both citrine and
+    # citrine-b at once races on a fresh DB (duplicate enum type creation).
+    # Same pattern as graphql-engine-b below - one designated migrator.
     command:
-      - 'set -e && npm run migrate && exec npm run start-docker --prefix ./Server'
+      - 'exec npm run start-docker --prefix ./Server'
     volumes:
       - ../package-lock.json:/usr/local/apps/citrineos/package-lock-host.json
       - ../package.json:/usr/local/apps/citrineos/package.json
