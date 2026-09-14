@@ -132,7 +132,45 @@ export class WebsocketNetworkConnection implements INetworkConnection {
   }
 
   async shutdown(): Promise<void> {
-    this._httpServersMap.forEach((server) => server.close());
+    // Stop accepting new connections before closing the ones already established,
+    // so their 'close' handler has a chance to run (deregistering from the cache
+    // and the router) instead of being killed outright by the process exiting.
+    await Promise.all(
+      Array.from(this._httpServersMap.values()).map(
+        (server) => new Promise<void>((resolve) => server.close(() => resolve())),
+      ),
+    );
+    await this._closeActiveConnections();
+  }
+
+  /**
+   * Closes every currently established websocket connection, waiting for each
+   * to complete its close handshake (up to `gracePeriodMs`) before terminating
+   * it, so the 'close' event handler runs and cleans up the cache/router state.
+   *
+   * @param {number} gracePeriodMs - Time to wait for a graceful close before forcing termination.
+   */
+  private async _closeActiveConnections(gracePeriodMs = 1000): Promise<void> {
+    await Promise.all(
+      Array.from(this._identifierConnections.values()).map(
+        (ws) =>
+          new Promise<void>((resolve) => {
+            if (ws.readyState === WebSocket.CLOSED) {
+              resolve();
+              return;
+            }
+            const forceClose = setTimeout(() => {
+              ws.terminate();
+              resolve();
+            }, gracePeriodMs);
+            ws.once('close', () => {
+              clearTimeout(forceClose);
+              resolve();
+            });
+            ws.close(1001, 'Server shutting down');
+          }),
+      ),
+    );
   }
 
   /**
