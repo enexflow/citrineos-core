@@ -2,19 +2,21 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-# Local HA overlay (TECH-2189): duplicates citrine and adds a shared redis
-# cache so cross-instance cache/TTL behavior is actually exercised (not two
-# isolated in-memory caches), then puts an nginx reverse proxy
-# (citrine-reverse-proxy / "nginx-ws") in front of both instances as the
-# local equivalent of the k8s ingress/LB (see Server/nginx-ha/nginx.conf).
+# Local HA overlay (TECH-2189 / TECH-2190): duplicates citrine and
+# graphql-engine (Hasura), adds a shared redis cache so cross-instance
+# cache/TTL behavior is actually exercised (not two isolated in-memory
+# caches), then puts an nginx reverse proxy (citrine-reverse-proxy /
+# "nginx-ws") in front of everything as the local equivalent of the k8s
+# ingress/LB (see Server/nginx-ha/nginx.conf).
 #
 # Usage (run from Server/), on top of the base stack:
 #   docker-compose -f docker-compose.yml -f docker-compose-ha.yaml up --build
 #
 # The proxy is reachable on host ports 9080 (HTTP API), 9081 (OCPP ws, no
-# auth) and 9082 (OCPP ws, basic auth) - separate from citrine's own
-# 8980/8081/8082 so both stacks can run side by side. TLS ports (8443/8444)
-# are not proxied; use the base docker-compose.yml directly for those.
+# auth), 9082 (OCPP ws, basic auth) and 9090 (Hasura) - separate from
+# citrine's own 8980/8081/8082/8090 so both stacks can run side by side. TLS
+# ports (8443/8444) are not proxied; use the base docker-compose.yml directly
+# for those.
 #
 # Note: docker-compose.swarm.yml's `redis` service builds `.redis.Dockerfile`,
 # which does not exist in this repo (predates this overlay). We use the
@@ -38,14 +40,25 @@ services:
       redis:
         condition: service_healthy
 
+  # Host port 8090 is used elsewhere on dev machines running other local
+  # stacks alongside this one; remap so `up` doesn't fail on a bind conflict.
+  # graphql-engine stays reachable through citrine-reverse-proxy on 9090
+  # either way, since nginx talks to it over the internal docker network.
+  graphql-engine:
+    ports: !override
+      - 8091:8080
+
   citrine-b:
     build:
       context: ../
       dockerfile: ./Server/deploy.Dockerfile
     working_dir: /usr/local/apps/citrineos
     entrypoint: ['/bin/sh', '-c']
+    # Plain replica, not a migrator: running `migrate` on both citrine and
+    # citrine-b at once races on a fresh DB (duplicate enum type creation).
+    # Same pattern as graphql-engine-b below - one designated migrator.
     command:
-      - 'set -e && npm run migrate && exec npm run start-docker --prefix ./Server'
+      - 'exec npm run start-docker --prefix ./Server'
     volumes:
       - ../package-lock.json:/usr/local/apps/citrineos/package-lock-host.json
       - ../package.json:/usr/local/apps/citrineos/package.json
@@ -138,6 +151,33 @@ services:
       retries: 5
       start_period: 60s
 
+  # TECH-2190: second Hasura instance behind the same local proxy, on the
+  # same DB as graphql-engine - stateless, no host port. Plain image (no
+  # cli-migrations-v3): only one instance may apply the static metadata
+  # snapshot at boot, or the second one fails with a metadata version
+  # conflict against the catalog the first already advanced. This one just
+  # serves, staying in sync via Hasura's schema-sync polling.
+  graphql-engine-b:
+    image: hasura/graphql-engine:v2.40.3
+    expose:
+      - 8080
+    depends_on:
+      graphql-engine:
+        condition: service_healthy
+    environment:
+      HASURA_GRAPHQL_DATABASE_URL: postgres://citrine:citrine@ocpp-db:5432/citrine
+      HASURA_GRAPHQL_ENABLE_CONSOLE: 'true'
+      HASURA_GRAPHQL_DEV_MODE: 'true'
+      HASURA_GRAPHQL_ENABLED_LOG_TYPES: startup, http-log, webhook-log, websocket-log, query-log
+      HASURA_GRAPHQL_ENABLE_TELEMETRY: 'false'
+      HASURA_GRAPHQL_METADATA_DEFAULTS: '{"backend_configs":{"dataconnector":{"athena":{"uri":"http://data-connector-agent:8081/api/v1/athena"},"mariadb":{"uri":"http://data-connector-agent:8081/api/v1/mariadb"},"mysql8":{"uri":"http://data-connector-agent:8081/api/v1/mysql"},"oracle":{"uri":"http://data-connector-agent:8081/api/v1/oracle"},"snowflake":{"uri":"http://data-connector-agent:8081/api/v1/snowflake"}}}}'
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://graphql-engine-b:8080/healthz']
+      interval: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 5s
+
   citrine-reverse-proxy:
     image: nginx:1.27-alpine
     volumes:
@@ -147,8 +187,13 @@ services:
       - 9081:8081
       - 9082:8082
       - 9092:8092
+      - 9090:8090
     depends_on:
       citrine:
         condition: service_healthy
       citrine-b:
+        condition: service_healthy
+      graphql-engine:
+        condition: service_healthy
+      graphql-engine-b:
         condition: service_healthy
