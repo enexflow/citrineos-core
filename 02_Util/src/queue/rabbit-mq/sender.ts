@@ -31,10 +31,10 @@ export class RabbitMqSender extends AbstractMessageSender implements IMessageSen
    */
   protected _connection?: amqplib.Connection;
   protected _channel?: amqplib.Channel;
-  private _reconnecting = false;
   private _abortReconnectController?: AbortController;
   private _circuitBreaker: CircuitBreaker;
   private _reconnectInterval?: NodeJS.Timeout;
+  private _connectPromise?: Promise<amqplib.Channel>;
 
   /**
    * Constructor for the class.
@@ -46,7 +46,7 @@ export class RabbitMqSender extends AbstractMessageSender implements IMessageSen
     super(config, logger);
     this._circuitBreaker = circuitBreaker ?? new CircuitBreaker();
     this._circuitBreaker.onStateChange(this._onCircuitBreakerStateChange.bind(this));
-    this._connectWithRetry()
+    this._connectOnce()
       .then((channel) => {
         this._channel = channel;
       })
@@ -163,6 +163,28 @@ export class RabbitMqSender extends AbstractMessageSender implements IMessageSen
    */
 
   /**
+   * Ensures a single reconnect sequence runs at a time.
+   *
+   * The reconnect interval and the circuit breaker's own OPEN state-change callback can
+   * both independently trigger `_connectWithRetry()`. Since `_connectWithRetry()` calls
+   * `triggerSuccess()` synchronously (which can itself fire the OPEN state-change callback)
+   * before returning, an in-flight call could otherwise spawn a concurrent one, producing two
+   * live AMQP channels and leaving `this._channel` pointing at whichever one resolved last.
+   * Callers must go through this method instead of calling `_connectWithRetry()` directly.
+   *
+   * @param {AbortSignal} [abortSignal] - Optional abort signal to stop retrying.
+   * @return {Promise<amqplib.Channel>} A promise that resolves to the AMQP channel.
+   */
+  private _connectOnce(abortSignal?: AbortSignal): Promise<amqplib.Channel> {
+    if (!this._connectPromise) {
+      this._connectPromise = this._connectWithRetry(abortSignal).finally(() => {
+        this._connectPromise = undefined;
+      });
+    }
+    return this._connectPromise;
+  }
+
+  /**
    * Connect to RabbitMQ with retry logic.
    * This method will keep trying to connect until successful, unless aborted.
    *
@@ -215,7 +237,7 @@ export class RabbitMqSender extends AbstractMessageSender implements IMessageSen
     );
     this._reconnectInterval = setInterval(() => {
       this._logger.info('Attempting RabbitMQ reconnect due to circuit breaker CLOSED...');
-      this._connectWithRetry()
+      this._connectOnce()
         .then((channel) => {
           this._logger.info('RabbitMQ reconnect attempt succeeded.');
           this._channel = channel;
@@ -253,7 +275,7 @@ export class RabbitMqSender extends AbstractMessageSender implements IMessageSen
           clearInterval(this._reconnectInterval);
           this._reconnectInterval = undefined;
         }
-        this._connectWithRetry()
+        this._connectOnce()
           .then((channel) => {
             this._logger.info('RabbitMQ connection (re)initialized.');
             this._channel = channel;
