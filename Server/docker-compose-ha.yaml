@@ -1,40 +1,27 @@
 # SPDX-FileCopyrightText: 2025 Contributors to the CitrineOS Project
 #
 # SPDX-License-Identifier: Apache-2.0
+
+# Local HA overlay (TECH-2189 / TECH-2190): duplicates citrine and
+# graphql-engine (Hasura), adds a shared redis cache so cross-instance
+# cache/TTL behavior is actually exercised (not two isolated in-memory
+# caches), then puts an nginx reverse proxy (citrine-reverse-proxy /
+# "nginx-ws") in front of everything as the local equivalent of the k8s
+# ingress/LB (see Server/nginx-ha/nginx.conf).
+#
+# Usage (run from Server/), on top of the base stack:
+#   docker-compose -f docker-compose.yml -f docker-compose-ha.yaml up --build
+#
+# The proxy is reachable on host ports 9080 (HTTP API), 9081 (OCPP ws, no
+# auth), 9082 (OCPP ws, basic auth) and 9090 (Hasura) - separate from
+# citrine's own 8980/8081/8082/8090 so both stacks can run side by side. TLS
+# ports (8443/8444) are not proxied; use the base docker-compose.yml directly
+# for those.
+#
+# Note: docker-compose.swarm.yml's `redis` service builds `.redis.Dockerfile`,
+# which does not exist in this repo (predates this overlay). We use the
+# official `redis:7-alpine` image here instead.
 services:
-  amqp-broker:
-    image: rabbitmq:3-management
-    ports:
-      - 15672:15672
-      - 5672:5672
-    environment:
-      RABBITMQ_DEFAULT_USER: 'guest'
-      RABBITMQ_DEFAULT_PASS: 'guest'
-    volumes:
-      - ./data/rabbitmq:/var/lib/rabbitmq
-    healthcheck:
-      test: rabbitmq-diagnostics -q check_port_connectivity
-      interval: 10s
-      timeout: 10s
-      retries: 3
-
-  ocpp-db:
-    image: postgis/postgis:16-3.5
-    platform: linux/amd64
-    ports:
-      - 5432:5432
-    volumes:
-      - ./data/postgresql/pgdata:/var/lib/postgresql/data
-    environment:
-      POSTGRES_DB: citrine
-      POSTGRES_USER: citrine
-      POSTGRES_PASSWORD: 'citrine'
-    healthcheck:
-      test: 'pg_isready --username=citrine'
-      interval: 5s
-      timeout: 10s
-      retries: 5
-
   redis:
     image: redis:7-alpine
     ports:
@@ -46,13 +33,32 @@ services:
       retries: 3
 
   citrine:
+    environment:
+      CITRINEOS_UTIL_CACHE_REDIS_HOST: 'redis'
+      CITRINEOS_UTIL_CACHE_REDIS_PORT: '6379'
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # Host port 8090 is used elsewhere on dev machines running other local
+  # stacks alongside this one; remap so `up` doesn't fail on a bind conflict.
+  # graphql-engine stays reachable through citrine-reverse-proxy on 9090
+  # either way, since nginx talks to it over the internal docker network.
+  graphql-engine:
+    ports: !override
+      - 8091:8080
+
+  citrine-b:
     build:
       context: ../
       dockerfile: ./Server/deploy.Dockerfile
     working_dir: /usr/local/apps/citrineos
-    entrypoint: ["/bin/sh", "-c"]
+    entrypoint: ['/bin/sh', '-c']
+    # Plain replica, not a migrator: running `migrate` on both citrine and
+    # citrine-b at once races on a fresh DB (duplicate enum type creation).
+    # Same pattern as graphql-engine-b below - one designated migrator.
     command:
-      - "set -e && npm run migrate && exec npm run start-docker --prefix ./Server"
+      - 'exec npm run start-docker --prefix ./Server'
     volumes:
       - ../package-lock.json:/usr/local/apps/citrineos/package-lock-host.json
       - ../package.json:/usr/local/apps/citrineos/package.json
@@ -101,34 +107,25 @@ services:
     environment:
       APP_NAME: 'all'
       APP_ENV: 'docker'
-      # Add AWS region (required by the SDK)
       AWS_REGION: us-east-1
-      # Skip authentication completely - use public access
       AWS_ACCESS_KEY_ID: minioadmin
       AWS_SECRET_ACCESS_KEY: minioadmin
-      # Database Strategy
       DB_STRATEGY: 'migrate'
-      # Bootstrap Configuration Environment Variables
       BOOTSTRAP_CITRINEOS_DATABASE_HOST: 'ocpp-db'
       BOOTSTRAP_CITRINEOS_CONFIG_FILENAME: 'config.json'
-      # CITRINEOS_CONFIG_DIR: '/custom/config/path'  # Optional - uncomment if needed
       BOOTSTRAP_CITRINEOS_FILE_ACCESS_TYPE: 'local'
       BOOTSTRAP_CITRINEOS_FILE_ACCESS_LOCAL_DEFAULT_FILE_PATH: '/data'
-      # OIDC Authentication Configuration
       CITRINEOS_UTIL_AUTHPROVIDER_OIDC_JWKSUri: 'http://keycloak:8180/auth/realms/patterm/protocol/openid-connect/certs'
       CITRINEOS_UTIL_AUTHPROVIDER_OIDC_ISSUER: 'http://keycloak:8180/auth/realms/patterm'
       CITRINEOS_UTIL_AUTHPROVIDER_OIDC_AUDIENCE: 'citrineos'
       CITRINEOS_UTIL_AUTHPROVIDER_OIDC_RATELIMIT: 'true'
       CITRINEOS_UTIL_AUTHPROVIDER_LOCALBYPASS: 'false'
-      # OIDC client credentials used to authenticate OUTBOUND message-API callbacks
-      # (e.g. the callbackUrl provided by the OCPI module, protected by keycloak).
-      # All four values are required together, otherwise config validation fails.
       CITRINEOS_OIDCCLIENT_TOKENURL: 'http://keycloak:8180/auth/realms/patterm/protocol/openid-connect/token'
       CITRINEOS_OIDCCLIENT_CLIENTID: 'timeseries_api'
       CITRINEOS_OIDCCLIENT_CLIENTSECRET: '1rLt3aDu9Zjgvr9aBE29h36p4igZpn0s'
-      # Must match the audience the OCPI callback endpoint validates
-      # (citrineos-ocpi: CITRINEOS_OCPI_OIDC_AUDIENCE)
       CITRINEOS_OIDCCLIENT_AUDIENCE: 'citrineos-ocpi'
+      CITRINEOS_UTIL_CACHE_REDIS_HOST: 'redis'
+      CITRINEOS_UTIL_CACHE_REDIS_PORT: '6379'
     depends_on:
       ocpp-db:
         condition: service_healthy
@@ -138,91 +135,65 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
-    ports:
-      - 8980:8080
-      - 8081:8081
-      - 8082:8082
-      - 8443:8443
-      - 8444:8444
-      - 9229:9229
-      - 8092:8092
-      - 10000-10500:10000-10500 # for dynamic websocket servers
+    expose:
+      - 8080
+      - 8081
+      - 8082
+      - 8092
     healthcheck:
-      test: ['CMD-SHELL', 'node -e "const net = require(\"net\"); const client = net.createConnection(8080, \"127.0.0.1\", () => { client.end(); process.exit(0); }); client.on(\"error\", () => process.exit(1)); client.setTimeout(5000, () => { client.destroy(); process.exit(1); });"']
+      test:
+        [
+          'CMD-SHELL',
+          'node -e "const net = require(\"net\"); const client = net.createConnection(8080, \"127.0.0.1\", () => { client.end(); process.exit(0); }); client.on(\"error\", () => process.exit(1)); client.setTimeout(5000, () => { client.destroy(); process.exit(1); });"',
+        ]
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 60s
 
-  minio:
-    image: quay.io/minio/minio
-    container_name: minio
-    ports:
-      - '9000:9000'
-      - '9001:9001'
-    environment:
-      # Use default credentials for simplicity
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-      # Enable public buckets
-      MINIO_BROWSER_REDIRECT_URL: http://localhost:9001
-      MINIO_SERVER_URL: http://localhost:9000
-    volumes:
-      - ./data/minio:/data
-    command: server /data --console-address ":9001"
-    healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 20s
-
-  # Initialize MinIO
-  minio-init:
-    image: quay.io/minio/mc
+  # TECH-2190: second Hasura instance behind the same local proxy, on the
+  # same DB as graphql-engine - stateless, no host port. Plain image (no
+  # cli-migrations-v3): only one instance may apply the static metadata
+  # snapshot at boot, or the second one fails with a metadata version
+  # conflict against the catalog the first already advanced. This one just
+  # serves, staying in sync via Hasura's schema-sync polling.
+  graphql-engine-b:
+    image: hasura/graphql-engine:v2.40.3
+    expose:
+      - 8080
     depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      # Enable command echoing and error reporting
-      set -x
-
-      echo 'Setting up MinIO alias'
-      mc alias set myminio http://minio:9000 minioadmin minioadmin || echo 'FAILED: alias setup'
-      "
-
-  graphql-engine:
-    image: hasura/graphql-engine:v2.40.3.cli-migrations-v3
-    volumes:
-      - ./hasura-metadata:/hasura-metadata
-    ports:
-      - 8090:8080
-    restart: always
-    depends_on:
-      citrine:
-        # ensures hasura migrations will run only after citrine is healthy,
-        # meaning 01_Data/dist/layers/sequelize/util.js was executed and logged
-        # CitrineOS Logger:DefaultSequelizeInstance Database altered,
-        # which means the database is ready to be used by hasura
+      graphql-engine:
         condition: service_healthy
     environment:
-      ## postgres database to store Hasura metadata
       HASURA_GRAPHQL_DATABASE_URL: postgres://citrine:citrine@ocpp-db:5432/citrine
-      ## enable the console served by server
-      HASURA_GRAPHQL_ENABLE_CONSOLE: 'true' # set to "false" to disable console
-      ## enable debugging mode. It is recommended to disable this in production
+      HASURA_GRAPHQL_ENABLE_CONSOLE: 'true'
       HASURA_GRAPHQL_DEV_MODE: 'true'
       HASURA_GRAPHQL_ENABLED_LOG_TYPES: startup, http-log, webhook-log, websocket-log, query-log
       HASURA_GRAPHQL_ENABLE_TELEMETRY: 'false'
-      ## uncomment next line to run console offline (i.e load console assets from server instead of CDN)
-      # HASURA_GRAPHQL_CONSOLE_ASSETS_DIR: /srv/console-assets
-      ## uncomment next line to set an admin secret - warning, without configuration this will cause upstream services to fail
-      # HASURA_GRAPHQL_ADMIN_SECRET: CitrineOS!
       HASURA_GRAPHQL_METADATA_DEFAULTS: '{"backend_configs":{"dataconnector":{"athena":{"uri":"http://data-connector-agent:8081/api/v1/athena"},"mariadb":{"uri":"http://data-connector-agent:8081/api/v1/mariadb"},"mysql8":{"uri":"http://data-connector-agent:8081/api/v1/mysql"},"oracle":{"uri":"http://data-connector-agent:8081/api/v1/oracle"},"snowflake":{"uri":"http://data-connector-agent:8081/api/v1/snowflake"}}}}'
     healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://graphql-engine:8080/healthz']
+      test: ['CMD', 'curl', '-f', 'http://graphql-engine-b:8080/healthz']
       interval: 5s
       timeout: 10s
       retries: 20
       start_period: 5s
+
+  citrine-reverse-proxy:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./nginx-ha/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - 9080:8080
+      - 9081:8081
+      - 9082:8082
+      - 9092:8092
+      - 9090:8090
+    depends_on:
+      citrine:
+        condition: service_healthy
+      citrine-b:
+        condition: service_healthy
+      graphql-engine:
+        condition: service_healthy
+      graphql-engine-b:
+        condition: service_healthy

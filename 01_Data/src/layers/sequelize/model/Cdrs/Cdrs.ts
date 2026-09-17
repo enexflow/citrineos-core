@@ -163,11 +163,18 @@ export class Cdr extends Model {
   declare tenant?: Tenant;
 
   @ForeignKey(() => TenantPartner)
-  @Column({ type: DataType.INTEGER, allowNull: false, onUpdate: 'CASCADE', onDelete: 'RESTRICT' })
-  declare tenantPartnerId: number;
+  @Column({ type: DataType.INTEGER, allowNull: true, onUpdate: 'CASCADE', onDelete: 'RESTRICT' })
+  declare toTenantPartnerId?: number | null;
 
-  @BelongsTo(() => TenantPartner)
-  declare tenantPartner?: TenantPartner;
+  @ForeignKey(() => TenantPartner)
+  @Column({ type: DataType.INTEGER, allowNull: true, onUpdate: 'CASCADE', onDelete: 'RESTRICT' })
+  declare fromTenantPartnerId?: number | null;
+
+  @BelongsTo(() => TenantPartner, { foreignKey: 'toTenantPartnerId', as: 'toTenantPartner' })
+  declare toTenantPartner?: TenantPartner;
+
+  @BelongsTo(() => TenantPartner, { foreignKey: 'fromTenantPartnerId', as: 'fromTenantPartner' })
+  declare fromTenantPartner?: TenantPartner;
 
   @ForeignKey(() => RoamingPartner)
   @Column({ type: DataType.INTEGER, allowNull: true, onUpdate: 'CASCADE', onDelete: 'SET NULL' })

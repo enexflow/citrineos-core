@@ -14,15 +14,6 @@
       "minLength": 3,
       "maxLength": 3
     },
-    "pricePerKwh": {
-      "type": "number"
-    },
-    "pricePerMin": {
-      "type": "number"
-    },
-    "pricePerSession": {
-      "type": "number"
-    },
     "paymentFee": {
       "type": "number"
     },

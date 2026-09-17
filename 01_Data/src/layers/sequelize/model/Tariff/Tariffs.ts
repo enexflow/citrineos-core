@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-import type { ConnectorDto, TariffDto, TenantDto } from '@citrineos/base';
+import type { TariffDto, TenantDto } from '@citrineos/base';
 import { DEFAULT_TENANT_ID, OCPP2_0_1_Namespace } from '@citrineos/base';
 import type { CreationOptional } from 'sequelize';
 import {
@@ -15,7 +15,6 @@ import {
   Model,
   Table,
 } from 'sequelize-typescript';
-import { Connector } from '../Location/index.js';
 import { Tenant } from '../Tenant.js';
 import { RoamingPartner } from '../RoamingPartner.js';
 import { TenantPartner } from '../TenantPartner.js';
@@ -31,57 +30,10 @@ export class Tariff extends Model implements TariffDto {
   declare ocpiTariffId?: string | null;
 
   @Column({
-    type: DataType.STRING,
-    unique: true,
-  })
-  declare stationId: string;
-
-  @ForeignKey(() => Connector)
-  @Column(DataType.INTEGER)
-  declare connectorId?: number | null;
-
-  @BelongsTo(() => Connector)
-  declare connector?: ConnectorDto | null;
-
-  @Column({
     type: DataType.CHAR(3),
     allowNull: false,
   })
   declare currency: string;
-
-  @Column({
-    type: DataType.DECIMAL,
-    allowNull: false,
-    validate: {
-      min: 0,
-    },
-    get(this: Tariff) {
-      return parseFloat(this.getDataValue('pricePerKwh'));
-    },
-  })
-  declare pricePerKwh: number;
-
-  @Column({
-    type: DataType.DECIMAL,
-    validate: {
-      min: 0,
-    },
-    get(this: Tariff) {
-      return parseFloat(this.getDataValue('pricePerMin'));
-    },
-  })
-  declare pricePerMin?: number | null;
-
-  @Column({
-    type: DataType.DECIMAL,
-    validate: {
-      min: 0,
-    },
-    get(this: Tariff) {
-      return parseFloat(this.getDataValue('pricePerSession'));
-    },
-  })
-  declare pricePerSession?: number | null;
 
   @Column({
     type: DataType.DECIMAL,
@@ -126,9 +78,6 @@ export class Tariff extends Model implements TariffDto {
     return {
       id: this.id,
       currency: this.currency,
-      pricePerKwh: this.pricePerKwh,
-      pricePerMin: this.pricePerMin,
-      pricePerSession: this.pricePerSession,
       taxRate: this.taxRate,
       authorizationAmount: this.authorizationAmount,
       paymentFee: this.paymentFee,
@@ -191,9 +140,6 @@ export interface TariffData {
   id: number;
   currency: string;
 
-  pricePerKwh: number;
-  pricePerMin?: number | null;
-  pricePerSession?: number | null;
   taxRate?: number | null;
 
   authorizationAmount?: number | null;
