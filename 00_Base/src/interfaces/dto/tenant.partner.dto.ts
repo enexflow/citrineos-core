@@ -10,6 +10,9 @@ export const RoamingPartnerSchema = BaseSchema.extend({
   id: z.number().int().optional(),
   countryCode: z.string().nullable().optional(),
   partyId: z.string().nullable().optional(),
+  name: z.string().nullable().optional(),
+  signatureDate: z.coerce.date().nullable().optional(),
+  contractStartDate: z.coerce.date().nullable().optional(),
 });
 
 export const TenantPartnerSchema = BaseSchema.extend({
