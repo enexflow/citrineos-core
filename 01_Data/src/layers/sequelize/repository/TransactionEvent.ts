@@ -720,7 +720,14 @@ export class SequelizeTransactionEventRepository
           connectorId: request.connectorId,
           stationId,
         },
-        include: [Tariff],
+        include: [
+          {
+            model: ConnectorTariff,
+            where: { tenantPartnerId: null },
+            required: false,
+            include: [{ model: Tariff }],
+          },
+        ],
         sequelizeTransaction,
       });
       if (!connector) {
@@ -761,7 +768,7 @@ export class SequelizeTransactionEventRepository
         stationId,
         evseId: connector.evseId,
         connectorId: connector.id,
-        tariffId: connector.connectorTariffs?.[0]?.id,
+        tariffId: selectApplicableTariff(connector.connectorTariffs, new Date(request.timestamp)),
         isActive: true,
         transactionId: transactionId.toString(),
         authorizationId: authorization ? authorization.id : null,
