@@ -248,12 +248,15 @@ export class MonitoringOcpp201Api
     return Promise.all(results);
   }
 
-  @AsMessageEndpoint(OCPP2_0_1_CallAction.SetVariables, OCPP2_0_1.SetVariablesRequestSchema)
+  @AsMessageEndpoint(OCPP2_0_1_CallAction.SetVariables, OCPP2_0_1.SetVariablesRequestSchema, {
+    correlationId: { type: 'string' },
+  })
   async setVariables(
     identifier: string[],
     request: OCPP2_0_1.SetVariablesRequest,
     callbackUrl?: string,
     tenantId: number = DEFAULT_TENANT_ID,
+    extraQueries?: Record<string, any>,
   ): Promise<IMessageConfirmation[]> {
     const confirmations: IMessageConfirmation[] = [];
 
@@ -288,6 +291,7 @@ export class MonitoringOcpp201Api
           'setVariableData',
           itemsPerMessage,
           callbackUrl,
+          extraQueries?.correlationId,
         );
         confirmations.push(...result);
       } catch (error) {
@@ -384,11 +388,15 @@ export class MonitoringOcpp201Api
     dataKey: string,
     itemsPerMessage: number,
     callbackUrl?: string,
+    correlationId?: string,
   ): Promise<IMessageConfirmation[]> {
     const confirmations: IMessageConfirmation[] = [];
     const allData = requestData[dataKey] as any[];
+    const batches = getBatches(allData, itemsPerMessage);
+    // Only reuse the correlation id if there is one batch, otherwise we lose one correlation id = one ocpp message
+    const batchCorrelationId = batches.size === 1 ? correlationId : undefined;
 
-    for (const [batchIndex, batch] of getBatches(allData, itemsPerMessage)) {
+    for (const [batchIndex, batch] of batches) {
       const batchRequest = { ...requestData, [dataKey]: batch };
       try {
         const confirmation = await this._module.sendCall(
@@ -398,6 +406,7 @@ export class MonitoringOcpp201Api
           action,
           batchRequest,
           callbackUrl,
+          batchCorrelationId,
         );
         confirmations.push({
           success: confirmation.success,

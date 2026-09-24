@@ -1,0 +1,50 @@
+# SPDX-FileCopyrightText: 2026 Contributors to the CitrineOS Project
+#
+# SPDX-License-Identifier: Apache-2.0
+table:
+  name: OCPISessionsWithCdr
+  schema: public
+object_relationships:
+  - name: Session
+    using:
+      manual_configuration:
+        column_mapping:
+          sessionId: id
+        insertion_order: null
+        remote_table:
+          name: Sessions
+          schema: public
+  - name: Cdr
+    using:
+      manual_configuration:
+        column_mapping:
+          cdrId: id
+        insertion_order: null
+        remote_table:
+          name: Cdrs
+          schema: public
+select_permissions:
+  - role: user
+    permission:
+      columns:
+        - sessionId
+        - cdrId
+        - tenantId
+        - tenantPartnerId
+        - roamingPartnerId
+        - ocpiSessionId
+        - countryCode
+        - partyId
+        - startDateTime
+        - endDateTime
+        - sessionLastUpdated
+        - status
+        - ocpiCdrId
+        - credit
+        - creditReferenceId
+        - cdrLastUpdated
+        - cdrToken
+      filter:
+        tenantId:
+          _eq: x-hasura-tenant-id
+      allow_aggregations: true

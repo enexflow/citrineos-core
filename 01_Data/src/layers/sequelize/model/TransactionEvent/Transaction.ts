@@ -57,10 +57,10 @@ export class Transaction extends Model implements TransactionDto {
     unique: 'stationId_transactionId',
   })
   @ForeignKey(() => ChargingStation)
-  stationId!: string;
+  declare stationId: string;
 
   @BelongsTo(() => ChargingStation)
-  station!: ChargingStationType;
+  declare station: ChargingStationType;
 
   @ForeignKey(() => Evse)
   @Column(DataType.INTEGER)

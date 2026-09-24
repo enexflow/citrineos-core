@@ -42,7 +42,6 @@ import type {
   IOCPPMessageRepository,
   IReservationRepository,
   ITariffRepository,
-  ITenantPartnerRepository,
   ITransactionEventRepository,
 } from '@citrineos/data';
 import {
@@ -51,7 +50,6 @@ import {
   OCPP2_0_1_Mapper,
   sequelize,
   SequelizeChargingStationSequenceRepository,
-  Tariff,
   VariableAttribute,
 } from '@citrineos/data';
 import {
@@ -509,44 +507,47 @@ export class EVDriverModule extends AbstractModule {
     }
 
     if (response.idTokenInfo.status === OCPP2_0_1.AuthorizationStatusEnumType.Accepted) {
-      const tariffAvailable: VariableAttribute[] =
-        await this._deviceModelRepository.readAllByQuerystring(context.tenantId, {
-          tenantId: context.tenantId,
-          stationId: message.context.stationId,
-          component_name: 'TariffCostCtrlr',
-          variable_name: 'Available',
-          variable_instance: 'Tariff',
-          type: OCPP2_0_1.AttributeEnumType.Actual,
-        });
+      await this._deviceModelRepository.readAllByQuerystring(context.tenantId, {
+        tenantId: context.tenantId,
+        stationId: message.context.stationId,
+        component_name: 'TariffCostCtrlr',
+        variable_name: 'Available',
+        variable_instance: 'Tariff',
+        type: OCPP2_0_1.AttributeEnumType.Actual,
+      });
 
-      const displayMessageAvailable: VariableAttribute[] =
-        await this._deviceModelRepository.readAllByQuerystring(context.tenantId, {
-          tenantId: context.tenantId,
-          stationId: message.context.stationId,
-          component_name: 'DisplayMessageCtrlr',
-          variable_name: 'Available',
-          type: OCPP2_0_1.AttributeEnumType.Actual,
-        });
+      await this._deviceModelRepository.readAllByQuerystring(context.tenantId, {
+        tenantId: context.tenantId,
+        stationId: message.context.stationId,
+        component_name: 'DisplayMessageCtrlr',
+        variable_name: 'Available',
+        type: OCPP2_0_1.AttributeEnumType.Actual,
+      });
+
+      // TODO: Remove this once the tariff implementation is finalized
+      // This code has been commented out because the tariff implementation is not yet finalized.
+      // the tariff logic right now if for OCPI only. Tariffs are linked to Connector of the Station.
+      // if we want to calculate the cost in the futur we need a new logic
 
       // only send the tariff information if the Charging Station supports the tariff or DisplayMessage functionality
-      if (
-        (tariffAvailable.length > 0 && Boolean(tariffAvailable[0].value)) ||
-        (displayMessageAvailable.length > 0 && Boolean(displayMessageAvailable[0].value))
-      ) {
-        // TODO: refactor the workaround below after tariff implementation is finalized.
-        const tariff: Tariff | undefined = await this._tariffRepository.findByStationId(
-          context.tenantId,
-          message.context.stationId,
-        );
-        if (tariff) {
-          if (!response.idTokenInfo.personalMessage) {
-            response.idTokenInfo.personalMessage = {
-              format: OCPP2_0_1.MessageFormatEnumType.ASCII,
-            } as OCPP2_0_1.MessageContentType;
-          }
-          response.idTokenInfo.personalMessage.content = `${tariff.pricePerKwh}/kWh`;
-        }
-      }
+      // if (
+      //   (tariffAvailable.length > 0 && Boolean(tariffAvailable[0].value)) ||
+      //   (displayMessageAvailable.length > 0 && Boolean(displayMessageAvailable[0].value))
+      // ) {
+
+      // const tariff: Tariff | undefined = await this._tariffRepository.findByStationId(
+      //   context.tenantId,
+      //   message.context.stationId,
+      // );
+      // if (tariff) {
+      //   if (!response.idTokenInfo.personalMessage) {
+      //     response.idTokenInfo.personalMessage = {
+      //       format: OCPP2_0_1.MessageFormatEnumType.ASCII,
+      //     } as OCPP2_0_1.MessageContentType;
+      //   }
+      //   response.idTokenInfo.personalMessage.content = `${tariff.pricePerKwh}/kWh`;
+      // }
+      // }
     }
 
     const messageConfirmation = await this.sendCallResultWithMessage(message, response);

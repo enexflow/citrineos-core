@@ -9,6 +9,14 @@ object_relationships:
     using:
       foreign_key_constraint_on: tariffId
 select_permissions:
+  - role: roaming_reader
+    permission:
+      columns:
+        - id
+        - tariffId
+        - priceComponents
+      filter: {}
+    comment: Read-only role for the Patterm timeseries_api roaming proxy (TECH-1807); SELECT only, cross-tenant (proxy filters by partner in-query).
   - role: user
     permission:
       columns:

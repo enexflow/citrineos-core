@@ -6,11 +6,14 @@ name: Publish citrine to npm
 
 on:
   push:
-    branches: [ env/staging, env/prod, tech-1564-use-our-own-citrine-npm-package ]
+    branches: [ env/dev, env/staging, env/prod ]
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -40,5 +43,4 @@ jobs:
       - name: Publish all packages
         run: bash scripts/publish-to-npm.sh ${{ steps.version.outputs.version }}
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN_ZETRA }}
           NPM_TAG: ${{ github.ref_name == 'env/prod' && 'prod' || 'staging' }}

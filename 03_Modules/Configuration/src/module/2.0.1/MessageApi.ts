@@ -258,12 +258,14 @@ export class ConfigurationOcpp201Api
   @AsMessageEndpoint(
     OCPP2_0_1_CallAction.ChangeAvailability,
     OCPP2_0_1.ChangeAvailabilityRequestSchema,
+    { correlationId: { type: 'string' } },
   )
   changeAvailability(
     identifier: string[],
     request: OCPP2_0_1.ChangeAvailabilityRequest,
     callbackUrl?: string,
     tenantId: number = DEFAULT_TENANT_ID,
+    extraQueries?: Record<string, any>,
   ): Promise<IMessageConfirmation[]> {
     const results: Promise<IMessageConfirmation>[] = identifier.map((id) =>
       this._module.sendCall(
@@ -273,6 +275,7 @@ export class ConfigurationOcpp201Api
         OCPP2_0_1_CallAction.ChangeAvailability,
         request,
         callbackUrl,
+        extraQueries?.correlationId,
       ),
     );
     return Promise.all(results);
