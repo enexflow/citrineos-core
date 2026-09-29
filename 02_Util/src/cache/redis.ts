@@ -58,28 +58,31 @@ export class RedisCache implements ICache {
     return new Promise((resolve) => {
       // Create a Redis subscriber to listen for operations affecting the key
       const subscriber = createClient();
+      let timer: NodeJS.Timeout | undefined;
+      let closed = false;
+
+      // Cancel the fallback timer and close the subscriber, exactly once
+      const cleanup = () => {
+        if (closed) return;
+        closed = true;
+        if (timer) clearTimeout(timer);
+        subscriber.quit().catch((error) => {
+          console.log('Error quitting subscriber', error);
+        });
+      };
+
       // Channel: Key-space, message: the name of the event, which is the command executed on the key
       subscriber
         .subscribe(`__keyspace@0__:${key}`, (channel, message) => {
           switch (message) {
             case 'set':
               resolve(this.get(key, namespace, classConstructor));
-              subscriber
-                .quit()
-                .then()
-                .catch((error) => {
-                  console.log('Error quitting subscriber', error);
-                });
+              cleanup();
               break;
             case 'del':
             case 'expire':
               resolve(null);
-              subscriber
-                .quit()
-                .then()
-                .catch((error) => {
-                  console.log('Error quitting subscriber', error);
-                });
+              cleanup();
               break;
             default:
               // Do nothing
@@ -90,14 +93,9 @@ export class RedisCache implements ICache {
         .catch((error) => {
           console.log('Error creating Redis subscriber', error);
         });
-      setTimeout(() => {
+      timer = setTimeout(() => {
         resolve(this.get(key, namespace, classConstructor));
-        subscriber
-          .quit()
-          .then()
-          .catch((error) => {
-            console.log('Error closing Redis subscriber', error);
-          });
+        cleanup();
       }, waitSeconds * 1000);
     });
   }
