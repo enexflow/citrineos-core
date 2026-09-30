@@ -58,7 +58,6 @@ export class RedisCache implements ICache {
     return new Promise((resolve) => {
       // Create a Redis subscriber to listen for operations affecting the key
       const subscriber = createClient();
-      let timer: NodeJS.Timeout | undefined;
       let closed = false;
 
       // Cancel the fallback timer and close the subscriber, exactly once
@@ -93,7 +92,7 @@ export class RedisCache implements ICache {
         .catch((error) => {
           console.log('Error creating Redis subscriber', error);
         });
-      timer = setTimeout(() => {
+      const timer = setTimeout(() => {
         resolve(this.get(key, namespace, classConstructor));
         cleanup();
       }, waitSeconds * 1000);
