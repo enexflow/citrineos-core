@@ -45,6 +45,16 @@ array_relationships:
           name: Tariffs
           schema: public
 select_permissions:
+  - role: ocpi-monitor-user
+    permission:
+      columns:
+        - countryCode
+        - id
+        - name
+        - partyId
+        - tenantPartnerId
+      filter: {}
+    comment: Read-only role for the OCPI monitor UI
   - role: roaming_reader
     permission:
       columns:
@@ -58,7 +68,8 @@ select_permissions:
     permission:
       columns:
         - id
-        - countryCode
+        - countryCodeNo CDRs attributed to a roaming partner in this period.
+
         - partyId
         - tenantPartnerId
         - createdAt
