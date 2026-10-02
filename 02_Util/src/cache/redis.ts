@@ -53,43 +53,57 @@ export class RedisCache implements ICache {
     classConstructor?: (() => ClassConstructor<T>) | undefined,
   ): Promise<T | null> {
     namespace = namespace || 'default';
-    key = `${namespace}:${key}`;
+    const namespaceKey = `${namespace}:${key}`;
 
     return new Promise((resolve) => {
-      // Create a Redis subscriber to listen for operations affecting the key
-      const subscriber = createClient();
+      // Create a Redis subscriber to listen for operations affecting the key.
+      // duplicate() reuses the main client's connection options; it must be connected explicitly.
+      const subscriber = this._client.duplicate();
       let closed = false;
 
       // Cancel the fallback timer and close the subscriber, exactly once
       const cleanup = () => {
         if (closed) return;
         closed = true;
-        if (timer) clearTimeout(timer);
-        subscriber.quit().catch((error) => {
-          console.log('Error quitting subscriber', error);
-        });
+        clearTimeout(timer);
+        if (subscriber.isOpen) {
+          subscriber.quit().catch((error) => {
+            console.log('Error quitting subscriber', error);
+          });
+        }
       };
 
-      // Channel: Key-space, message: the name of the event, which is the command executed on the key
+      subscriber.on('error', (err) => console.error('Redis subscriber error', err));
+
+      // Channel: Key-space, message: the name of the event, which is the command executed on the key.
+      // node-redis invokes the listener as (message, channel).
       subscriber
-        .subscribe(`__keyspace@0__:${key}`, (channel, message) => {
-          switch (message) {
-            case 'set':
-              resolve(this.get(key, namespace, classConstructor));
-              cleanup();
-              break;
-            case 'del':
-            case 'expire':
-              resolve(null);
-              cleanup();
-              break;
-            default:
-              // Do nothing
-              break;
+        .connect()
+        .then(async () => {
+          // The wait may already have elapsed while connecting; don't leave the connection open
+          if (closed) {
+            await subscriber.quit();
+            return;
           }
+          await subscriber.subscribe(`__keyspace@0__:${namespaceKey}`, (message) => {
+            switch (message) {
+              case 'set':
+                resolve(this.get(key, namespace, classConstructor));
+                cleanup();
+                break;
+              case 'del':
+              case 'expire':
+                resolve(null);
+                cleanup();
+                break;
+              default:
+                // Do nothing
+                break;
+            }
+          });
         })
-        .then()
         .catch((error) => {
+          // The fallback timer below is still armed and will resolve and clean up
           console.log('Error creating Redis subscriber', error);
         });
       const timer = setTimeout(() => {
