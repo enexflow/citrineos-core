@@ -50,6 +50,7 @@ select_permissions:
         - id
         - currency
         - ocpiTariffId
+        - endDateTime
         - tenantId
         - tenantPartnerId
       filter: {}
