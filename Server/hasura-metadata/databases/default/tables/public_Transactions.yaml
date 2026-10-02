@@ -70,6 +70,13 @@ array_relationships:
           name: TransactionEvents
           schema: public
 select_permissions:
+  - role: ocpi-monitor-user
+    permission:
+      columns:
+        - endTime
+      filter: {}
+      allow_aggregations: true
+    comment: Read-only role for the OCPI monitor UI
   - role: user
     permission:
       columns:

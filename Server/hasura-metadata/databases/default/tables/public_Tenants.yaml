@@ -356,6 +356,13 @@ array_relationships:
           name: Cdrs
           schema: public
 select_permissions:
+  - role: ocpi-monitor-user
+    permission:
+      columns:
+        - countryCode
+        - partyId
+      filter: {}
+    comment: Read-only role for the OCPI monitor UI
   - role: roaming_reader
     permission:
       columns:

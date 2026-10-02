@@ -59,6 +59,14 @@ array_relationships:
           name: RoamingPartners
           schema: public
 select_permissions:
+  - role: ocpi-monitor-user
+    permission:
+      columns:
+        - countryCode
+        - id
+        - partyId
+      filter: {}
+    comment: Read-only role for the OCPI monitor UI
   - role: roaming_reader
     permission:
       columns:

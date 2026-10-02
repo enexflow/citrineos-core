@@ -58,6 +58,21 @@ array_relationships:
           name: AuthorizationLocations
           schema: public
 select_permissions:
+  - role: ocpi-monitor-user
+    permission:
+      columns:
+        - createdAt
+        - id
+        - idToken
+        - idTokenType
+        - ocpiAuthMethod
+        - roamingPartnerId
+        - status
+        - tenantPartnerId
+        - updatedAt
+      filter: {}
+      allow_aggregations: true
+    comment: Read-only role for the OCPI monitor UI
   - role: user
     permission:
       columns:

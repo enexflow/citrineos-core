@@ -44,6 +44,20 @@ array_relationships:
           name: TariffElements
           schema: public
 select_permissions:
+  - role: ocpi-monitor-user
+    permission:
+      columns:
+        - currency
+        - endDateTime
+        - id
+        - ocpiTariffId
+        - roamingPartnerId
+        - startDateTime
+        - taxRate
+        - tenantPartnerId
+      filter: {}
+      allow_aggregations: true
+    comment: Read-only role for the OCPI monitor UI
   - role: roaming_reader
     permission:
       columns:
