@@ -8,6 +8,7 @@ import {
   getTenantIdFromIdentifier,
   MessageOrigin,
   MessageState,
+  OidcTokenProvider,
 } from '@citrineos/base';
 import type { IOCPPMessageRepository, ISubscriptionRepository } from '@citrineos/data';
 import { Subscription } from '@citrineos/data';
@@ -21,6 +22,7 @@ export class WebhookDispatcher {
   protected _logger: Logger<ILogObj>;
   protected _ocppMessageRepository: IOCPPMessageRepository;
   protected _subscriptionRepository: ISubscriptionRepository;
+  protected _oidcTokenProvider?: OidcTokenProvider;
 
   protected _identifiers: Set<string> = new Set();
 
@@ -34,9 +36,11 @@ export class WebhookDispatcher {
     ocppMessageRepository: IOCPPMessageRepository,
     subscriptionRepository: ISubscriptionRepository,
     logger?: Logger<ILogObj>,
+    oidcTokenProvider?: OidcTokenProvider,
   ) {
     this._ocppMessageRepository = ocppMessageRepository;
     this._subscriptionRepository = subscriptionRepository;
+    this._oidcTokenProvider = oidcTokenProvider;
     this._logger = logger
       ? logger.getSubLogger({ name: this.constructor.name })
       : new Logger<ILogObj>({ name: this.constructor.name });
@@ -395,12 +399,25 @@ export class WebhookDispatcher {
     },
     url: string,
   ): Promise<boolean> {
+    const headers: { [key: string]: string } = {
+      'Content-Type': 'application/json',
+    };
+    // Same contract as message API callbacks: never send unauthenticated when OIDC is configured.
+    if (this._oidcTokenProvider) {
+      try {
+        headers['Authorization'] = `Bearer ${await this._oidcTokenProvider.getToken()}`;
+      } catch (error) {
+        this._logger.error(
+          `Failed to get OIDC token for subscription ${url} on charging station ${requestBody.stationId}.
+           Event: ${requestBody.event}, ${error}`,
+        );
+        return false;
+      }
+    }
     try {
       const response = await fetch(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify(requestBody),
       });
 
