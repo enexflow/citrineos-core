@@ -63,6 +63,9 @@ select_permissions:
         - tenantPartnerId
         - createdAt
         - updatedAt
+        - name
+        - signatureDate
+        - contractStartDate
       filter: {}
       allow_aggregations: true
     comment: ""

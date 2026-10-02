@@ -20,4 +20,13 @@ export class RoamingPartner extends Model {
 
   @Column({ type: DataType.INTEGER, allowNull: false })
   declare tenantPartnerId: number;
+
+  @Column({ type: DataType.STRING(255), allowNull: true })
+  declare name: string | null;
+
+  @Column({ type: DataType.DATE, allowNull: true })
+  declare signatureDate: Date | null;
+
+  @Column({ type: DataType.DATE, allowNull: true })
+  declare contractStartDate: Date | null;
 }

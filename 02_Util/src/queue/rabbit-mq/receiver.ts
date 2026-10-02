@@ -55,6 +55,8 @@ export class RabbitMqReceiver extends AbstractMessageHandler {
   private _circuitBreaker: CircuitBreaker;
   private _reconnectInterval?: NodeJS.Timeout;
   private _connectPromise?: Promise<amqplib.Channel>;
+  /** Identifiers whose queues we are deleting ourselves; their consumer cancels are expected. */
+  private _unsubscribing = new Set<string>();
 
   constructor(
     config: SystemConfig,
@@ -152,7 +154,7 @@ export class RabbitMqReceiver extends AbstractMessageHandler {
     }
 
     // Start consuming messages
-    await channel.consume(queueName, (msg) => this._onMessage(msg, channel));
+    await this._consume(channel, queueName, identifier);
 
     // Define cache keys
     const cacheKey = `${RabbitMqReceiver.CACHE_PREFIX}${identifier}`;
@@ -226,6 +228,7 @@ export class RabbitMqReceiver extends AbstractMessageHandler {
   unsubscribe(identifier: string): Promise<boolean> {
     const cacheKey = `${RabbitMqReceiver.CACHE_PREFIX}${identifier}`;
     const metadataKey = `${RabbitMqReceiver.METADATA_PREFIX}${identifier}`;
+    this._unsubscribing.add(identifier);
     return this._cache
       .get<Array<string>>(cacheKey, CacheNamespace.Other, () => Array<string>)
       .then(async (queues) => {
@@ -276,7 +279,8 @@ export class RabbitMqReceiver extends AbstractMessageHandler {
           );
           return false;
         }
-      });
+      })
+      .finally(() => this._unsubscribing.delete(identifier));
   }
 
   shutdown(): Promise<void> {
@@ -343,6 +347,14 @@ export class RabbitMqReceiver extends AbstractMessageHandler {
         }
         channel.on('error', (err) => {
           this._logger.error('AMQP channel error', err);
+        });
+        // A channel can be closed by the broker (e.g. a 404/405 on a queue whose home node is
+        // gone) while the connection stays up. Without this, the receiver keeps a dead channel
+        // and never consumes again.
+        channel.on('close', () => {
+          if (channel !== this._channel) return;
+          this._logger.warn('AMQP channel closed while connection is up. Forcing reconnect.');
+          this._forceReconnect(channel);
         });
         this._setupConnectionListeners();
         this._circuitBreaker.triggerSuccess();
@@ -620,7 +632,7 @@ export class RabbitMqReceiver extends AbstractMessageHandler {
     }
 
     // Start consuming messages
-    await channel.consume(queueName, (msg) => this._onMessage(msg, channel));
+    await this._consume(channel, queueName, identifier);
 
     // Update cache with new queue name
     const cacheKey = `${RabbitMqReceiver.CACHE_PREFIX}${identifier}`;
@@ -674,7 +686,7 @@ export class RabbitMqReceiver extends AbstractMessageHandler {
       }
     }
 
-    await channel.consume(queueName, (msg) => this._onMessage(msg, channel));
+    await this._consume(channel, queueName, identifier);
 
     const cacheKey = `${RabbitMqReceiver.CACHE_PREFIX}${identifier}`;
     await this._cache.set(cacheKey, JSON.stringify([queueName]), CacheNamespace.Other);
@@ -683,6 +695,98 @@ export class RabbitMqReceiver extends AbstractMessageHandler {
       `Successfully re-subscribed ${identifier} with queue ${queueName} and ${metadataList.length} binding(s)`,
     );
     return true;
+  }
+
+  /**
+   * Starts a consumer on `queueName`, routing broker-side consumer cancellations
+   * (null message) to {@link _onConsumerCancelled}.
+   */
+  private _consume(
+    channel: amqplib.Channel,
+    queueName: string,
+    identifier: string,
+  ): Promise<amqplib.Replies.Consume> {
+    return channel.consume(queueName, (msg) => {
+      if (msg === null) {
+        this._onConsumerCancelled(identifier, channel);
+        return;
+      }
+      void this._onMessage(msg, channel);
+    });
+  }
+
+  /**
+   * Called when the broker cancels one of our consumers, which happens when its queue is
+   * deleted. For our transient (non-durable, non-replicated) queues this is what happens when
+   * the RabbitMQ node hosting the queue goes down while our connection lives on another node:
+   * the connection stays up, so no reconnect is triggered, but the queue and its bindings are
+   * gone and published messages are silently dropped.
+   *
+   * We re-declare the queue, its bindings and the consumer from the cached subscription
+   * metadata. If that fails, we fall back to a full reconnect, which re-subscribes everything.
+   */
+  private _onConsumerCancelled(identifier: string, channel: amqplib.Channel): void {
+    // Must stay synchronous up to here: the cancel frame for our own deleteQueue() arrives
+    // before unsubscribe() gets to clear the flag.
+    if (this._unsubscribing.has(identifier)) {
+      return;
+    }
+    if (channel !== this._channel) {
+      // Stale channel: the reconnect that replaced it already re-subscribed everything.
+      return;
+    }
+    this._logger.warn(
+      `RabbitMQ cancelled the consumer for ${identifier} (queue deleted by the broker). Re-subscribing.`,
+    );
+    this._restoreSubscription(identifier, channel).catch((error) => {
+      this._logger.error(
+        `Failed to re-subscribe ${identifier} after consumer cancel. Forcing reconnect.`,
+        error,
+      );
+      this._forceReconnect(channel);
+    });
+  }
+
+  private async _restoreSubscription(identifier: string, channel: amqplib.Channel): Promise<void> {
+    const metadataKey = `${RabbitMqReceiver.METADATA_PREFIX}${identifier}`;
+    const metadataJson = await this._cache.get<string>(metadataKey, CacheNamespace.Other);
+    if (!metadataJson) {
+      this._logger.warn(`No subscription metadata for ${identifier}, not re-subscribing.`);
+      return;
+    }
+    const parsed = JSON.parse(metadataJson);
+    const metadataList = (Array.isArray(parsed) ? parsed : [parsed]) as SubscriptionMetadataList;
+    const validMetadata = metadataList.filter((m) => m?.identifier === identifier);
+    if (validMetadata.length === 0) {
+      this._logger.warn(`No valid subscription metadata for ${identifier}, not re-subscribing.`);
+      return;
+    }
+    if (channel !== this._channel) {
+      // A reconnect happened meanwhile and took care of it.
+      return;
+    }
+    await this._resubscribeBindings(identifier, validMetadata);
+    this._logger.info(`Re-subscribed ${identifier} after consumer cancel.`);
+  }
+
+  /**
+   * Closes the current connection so that the regular disconnect path
+   * ({@link _handleDisconnect}) reconnects and re-subscribes everything.
+   * No-op if `channel` has already been superseded by a newer connection.
+   */
+  private _forceReconnect(channel: amqplib.Channel): void {
+    const connection = this._connection;
+    if (channel !== this._channel || !connection) {
+      return;
+    }
+    Promise.resolve()
+      .then(() => connection.close())
+      .catch((error) => {
+        this._logger.warn('Closing RabbitMQ connection failed, handling as disconnect.', error);
+        if (this._connection === connection) {
+          void this._handleDisconnect();
+        }
+      });
   }
 
   /**
