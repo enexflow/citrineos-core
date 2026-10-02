@@ -30,6 +30,23 @@ array_relationships:
           name: Transactions
           schema: public
 select_permissions:
+  - role: ocpi-monitor-user
+    permission:
+      columns:
+        - address
+        - city
+        - coordinates
+        - country
+        - deletedAt
+        - disableOCPI
+        - id
+        - name
+        - ocpiId
+        - ownerTenantPartnerId
+        - roamingPartnerId
+        - updatedAt
+      filter: {}
+    comment: Read-only role for the OCPI monitor UI
   - role: roaming_reader
     permission:
       columns:

@@ -45,6 +45,16 @@ array_relationships:
           name: Tariffs
           schema: public
 select_permissions:
+  - role: ocpi-monitor-user
+    permission:
+      columns:
+        - countryCode
+        - id
+        - name
+        - partyId
+        - tenantPartnerId
+      filter: {}
+    comment: Read-only role for the OCPI monitor UI
   - role: roaming_reader
     permission:
       columns:
@@ -52,6 +62,9 @@ select_permissions:
         - countryCode
         - partyId
         - tenantPartnerId
+        - name
+        - signatureDate
+        - contractStartDate
       filter: {}
     comment: Read-only role for the Patterm timeseries_api roaming proxy (TECH-2138); a hub-fed Location carries the hub as OwnerTenantPartner, so the real CPO can only be read here.
   - role: user

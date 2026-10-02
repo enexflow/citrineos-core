@@ -69,6 +69,12 @@ array_relationships:
           name: VariableAttributes
           schema: public
 select_permissions:
+  - role: ocpi-monitor-user
+    permission:
+      columns: []
+      filter: {}
+      allow_aggregations: true
+    comment: Read-only role for the OCPI monitor UI
   - role: roaming_reader
     permission:
       columns:
