@@ -44,6 +44,13 @@ export class RabbitMqReceiver extends AbstractMessageHandler {
   private static readonly METADATA_PREFIX = 'rabbit_subscription_metadata_';
   private static readonly REGISTRY_KEY = 'rabbit_subscription_registry';
   private static readonly RECONNECT_DELAY = 5000;
+  /**
+   * Backoff between in-process retries of a message whose handler threw a
+   * {@link RetryMessageError} (typically: an outbound Call is already in progress for the
+   * station). The total (15.5 s) stays under the default maxCallLengthSeconds (20 s), the TTL
+   * of the station's outbound call lock, so the lock is usually released within the budget.
+   */
+  private static readonly RETRY_DELAYS_MS = [500, 1000, 2000, 4000, 8000];
 
   /**
    * Fields
@@ -782,7 +789,9 @@ export class RabbitMqReceiver extends AbstractMessageHandler {
     Promise.resolve()
       .then(() => connection.close())
       .catch((error) => {
-        this._logger.warn('Closing RabbitMQ connection failed, handling as disconnect.', error);
+        // Usually the connection is already closing (a real disconnect closes the channel
+        // first), and its own 'close' event handles it. Not worth a WARN on every disconnect.
+        this._logger.debug('RabbitMQ connection already closing, handling as disconnect.', error);
         if (this._connection === connection) {
           void this._handleDisconnect();
         }
@@ -800,36 +809,64 @@ export class RabbitMqReceiver extends AbstractMessageHandler {
     channel: amqplib.Channel,
   ): Promise<void> {
     if (message) {
-      try {
-        this._logger.debug(
-          '_onMessage:Received message:',
-          message.properties,
-          message.content.toString(),
-        );
-        const messageData = JSON.parse(message.content.toString());
-
-        // Create Message instance with generic payload (no type transformation needed)
-        const parsed = new Message(
-          messageData.origin || messageData._origin,
-          messageData.eventGroup || messageData._eventGroup,
-          messageData.action || messageData._action,
-          messageData.state || messageData._state,
-          messageData.context || messageData._context,
-          messageData.payload || messageData._payload, // Keep payload as generic object
-          messageData.protocol || messageData._protocol,
-        );
-        await this.handle(parsed, message.properties);
-      } catch (error) {
-        if (error instanceof RetryMessageError) {
-          this._logger.warn('Retrying message: ', error.message);
-          // Retryable error, usually ongoing call with station when trying to send new call
-          channel.nack(message);
-          return;
-        } else {
-          this._logger.error('Error while processing message:', error, message);
+      this._logger.debug(
+        '_onMessage:Received message:',
+        message.properties,
+        message.content.toString(),
+      );
+      // A plain nack(requeue) makes the broker redeliver immediately, which spins in a hot loop
+      // for as long as the retry condition lasts (TECH-2271: 2 040 "Call already in progress"
+      // in 11 min for one station). Retry in-process with backoff instead, and only requeue
+      // once the budget is exhausted.
+      for (let attempt = 0; ; attempt++) {
+        try {
+          await this.handle(this._parseMessage(message), message.properties);
+          break;
+        } catch (error) {
+          if (!(error instanceof RetryMessageError)) {
+            this._logger.error('Error while processing message:', error, message);
+            break;
+          }
+          const delay = RabbitMqReceiver.RETRY_DELAYS_MS[attempt];
+          if (delay === undefined) {
+            this._logger.warn(
+              `Retrying message: ${error.message}. Retry budget exhausted, requeueing.`,
+            );
+            this._settle(() => channel.nack(message));
+            return;
+          }
+          this._logger.warn(`Retrying message in ${delay} ms: `, error.message);
+          await new Promise((resolve) => setTimeout(resolve, delay));
         }
       }
-      channel.ack(message);
+      this._settle(() => channel.ack(message));
+    }
+  }
+
+  private _parseMessage(message: amqplib.ConsumeMessage): Message<any> {
+    const messageData = JSON.parse(message.content.toString());
+
+    // Create Message instance with generic payload (no type transformation needed)
+    return new Message(
+      messageData.origin || messageData._origin,
+      messageData.eventGroup || messageData._eventGroup,
+      messageData.action || messageData._action,
+      messageData.state || messageData._state,
+      messageData.context || messageData._context,
+      messageData.payload || messageData._payload, // Keep payload as generic object
+      messageData.protocol || messageData._protocol,
+    );
+  }
+
+  /**
+   * Acks or nacks a message. If the channel closed meanwhile (e.g. during a retry backoff),
+   * the broker has already requeued the message, so there is nothing left to do.
+   */
+  private _settle(settle: () => void): void {
+    try {
+      settle();
+    } catch (error) {
+      this._logger.warn('Could not ack/nack message, channel is closed:', error);
     }
   }
 }
