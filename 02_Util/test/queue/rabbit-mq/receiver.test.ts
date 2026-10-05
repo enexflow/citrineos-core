@@ -4,6 +4,7 @@
 
 import * as amqplib from 'amqplib';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { RetryMessageError } from '@citrineos/base';
 import { MemoryCache, RabbitMqReceiver } from '../../../src/index.js';
 
 vi.mock('amqplib', () => ({
@@ -16,6 +17,8 @@ function aFakeChannel() {
     assertQueue: vi.fn().mockResolvedValue(undefined),
     bindQueue: vi.fn().mockResolvedValue(undefined),
     consume: vi.fn().mockResolvedValue(undefined),
+    ack: vi.fn(),
+    nack: vi.fn(),
     unbindQueue: vi.fn().mockResolvedValue(undefined),
     deleteQueue: vi.fn().mockResolvedValue({ messageCount: 0 }),
     on: vi.fn(),
@@ -173,5 +176,89 @@ describe('RabbitMqReceiver reconnection', () => {
     channelCloseHandler();
 
     return vi.waitFor(() => expect(connections[0].close).toHaveBeenCalledTimes(1));
+  });
+
+  describe('RetryMessageError backoff', () => {
+    const aMessage = () =>
+      ({
+        content: Buffer.from(
+          JSON.stringify({
+            origin: 'csms',
+            eventGroup: 'smartcharging',
+            action: 'SetChargingProfile',
+            state: 1,
+            context: { stationId: 'cp001', tenantId: 1, correlationId: 'c-1' },
+            payload: {},
+            protocol: 'ocpp2.0.1',
+          }),
+        ),
+        properties: {},
+        fields: {},
+      }) as unknown as amqplib.ConsumeMessage;
+
+    it('retries in-process with backoff instead of requeueing immediately', async () => {
+      vi.useFakeTimers();
+      const channel = channels[0];
+      const handle = vi
+        .spyOn(receiver, 'handle')
+        .mockRejectedValueOnce(new RetryMessageError('Call already in progress'))
+        .mockResolvedValueOnce(undefined);
+
+      const done = (receiver as any)._onMessage(aMessage(), channel);
+      await vi.advanceTimersByTimeAsync(499);
+      expect(handle).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      await done;
+
+      expect(handle).toHaveBeenCalledTimes(2);
+      expect(channel.ack).toHaveBeenCalledTimes(1);
+      expect(channel.nack).not.toHaveBeenCalled();
+    });
+
+    it('requeues only once the retry budget is exhausted', async () => {
+      vi.useFakeTimers();
+      const channel = channels[0];
+      const handle = vi
+        .spyOn(receiver, 'handle')
+        .mockRejectedValue(new RetryMessageError('Call already in progress'));
+
+      const done = (receiver as any)._onMessage(aMessage(), channel);
+      await vi.advanceTimersByTimeAsync(15_499);
+      expect(channel.nack).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      await done;
+
+      // 1 initial attempt + 5 retries over 0.5 + 1 + 2 + 4 + 8 s
+      expect(handle).toHaveBeenCalledTimes(6);
+      expect(channel.nack).toHaveBeenCalledTimes(1);
+      expect(channel.ack).not.toHaveBeenCalled();
+    });
+
+    it('acks without retrying on a non-retryable error', async () => {
+      const channel = channels[0];
+      const handle = vi.spyOn(receiver, 'handle').mockRejectedValue(new Error('boom'));
+
+      await (receiver as any)._onMessage(aMessage(), channel);
+
+      expect(handle).toHaveBeenCalledTimes(1);
+      expect(channel.ack).toHaveBeenCalledTimes(1);
+      expect(channel.nack).not.toHaveBeenCalled();
+    });
+
+    it('does not throw when the channel closed during the backoff', async () => {
+      vi.useFakeTimers();
+      const channel = channels[0];
+      vi.spyOn(receiver, 'handle')
+        .mockRejectedValueOnce(new RetryMessageError('Call already in progress'))
+        .mockResolvedValueOnce(undefined);
+      channel.ack.mockImplementation(() => {
+        throw new Error('Channel closed');
+      });
+
+      const done = (receiver as any)._onMessage(aMessage(), channel);
+      await vi.advanceTimersByTimeAsync(500);
+
+      await expect(done).resolves.toBeUndefined();
+    });
   });
 });
