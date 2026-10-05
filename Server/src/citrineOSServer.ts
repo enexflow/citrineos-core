@@ -23,6 +23,7 @@ import {
   eventGroupFromString,
   type IAuthenticator,
   OCPPValidator,
+  OidcTokenProvider,
 } from '@citrineos/base';
 import {
   CertificatesDataApi,
@@ -357,6 +358,9 @@ export class CitrineOSServer {
       this._repositoryStore.ocppMessageRepository,
       this._repositoryStore.subscriptionRepository,
       this._logger,
+      this._config.oidcClient
+        ? new OidcTokenProvider(this._config.oidcClient, this._logger)
+        : undefined,
     );
 
     this._router = new MessageRouterImpl(
