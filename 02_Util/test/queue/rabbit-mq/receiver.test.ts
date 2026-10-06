@@ -174,4 +174,27 @@ describe('RabbitMqReceiver reconnection', () => {
 
     return vi.waitFor(() => expect(connections[0].close).toHaveBeenCalledTimes(1));
   });
+
+  it('closes the connection when its setup is refused after connect, instead of leaking one per retry', async () => {
+    vi.useFakeTimers();
+    await (receiver as any)._handleDisconnect();
+    (amqplib.connect as any).mockImplementationOnce(() => {
+      const channel = aFakeChannel();
+      channel.assertExchange.mockRejectedValue(new Error('ACCESS_REFUSED'));
+      const connection = aFakeConnection(channel);
+      channels.push(channel);
+      connections.push(connection);
+      return Promise.resolve(connection);
+    });
+
+    const reconnect = (receiver as any)._connectOnce();
+    await vi.advanceTimersByTimeAsync(1000);
+    const channel = await reconnect;
+
+    expect(amqplib.connect).toHaveBeenCalledTimes(3);
+    expect(connections[1].close).toHaveBeenCalledTimes(1);
+    expect(connections[2].close).not.toHaveBeenCalled();
+    expect(channel).toBe(channels[2]);
+    expect((receiver as any)._channel).toBe(channels[2]);
+  });
 });
