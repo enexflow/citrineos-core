@@ -21,6 +21,46 @@ object_relationships:
     using:
       foreign_key_constraint_on: transactionId
 select_permissions:
+  - role: ocpi-monitor-user
+    permission:
+      columns:
+        - authMethod
+        - authorizationReference
+        - cdrLocation
+        - cdrToken
+        - chargingPeriods
+        - countryCode
+        - credit
+        - creditReferenceId
+        - currency
+        - endDateTime
+        - fromTenantPartnerId
+        - homeChargingCompensation
+        - id
+        - invoiceReferenceId
+        - lastUpdated
+        - meterId
+        - ocpiCdrId
+        - partyId
+        - remark
+        - roamingPartnerId
+        - sessionId
+        - signedData
+        - startDateTime
+        - tariffs
+        - toTenantPartnerId
+        - totalCost
+        - totalEnergy
+        - totalEnergyCost
+        - totalFixedCost
+        - totalParkingCost
+        - totalParkingTime
+        - totalReservationCost
+        - totalTime
+        - totalTimeCost
+      filter: {}
+      allow_aggregations: true
+    comment: Read-only role for the OCPI monitor UI
   - role: user
     permission:
       columns:

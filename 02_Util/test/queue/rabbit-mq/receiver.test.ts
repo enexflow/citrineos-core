@@ -16,6 +16,8 @@ function aFakeChannel() {
     assertQueue: vi.fn().mockResolvedValue(undefined),
     bindQueue: vi.fn().mockResolvedValue(undefined),
     consume: vi.fn().mockResolvedValue(undefined),
+    unbindQueue: vi.fn().mockResolvedValue(undefined),
+    deleteQueue: vi.fn().mockResolvedValue({ messageCount: 0 }),
     on: vi.fn(),
   };
 }
@@ -25,6 +27,7 @@ function aFakeConnection(channel: ReturnType<typeof aFakeChannel>) {
     createChannel: vi.fn().mockResolvedValue(channel),
     on: vi.fn(),
     removeAllListeners: vi.fn(),
+    close: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -114,5 +117,61 @@ describe('RabbitMqReceiver reconnection', () => {
     expect(channels).toHaveLength(2);
     expect(channels[1].consume).toHaveBeenCalledTimes(1);
     expect((receiver as any)._channel).toBe(channels[1]);
+  });
+
+  describe('broker-side consumer cancel (queue deleted, connection still up)', () => {
+    const consumerCallback = (channel: ReturnType<typeof aFakeChannel>) =>
+      channel.consume.mock.calls[0][1] as (msg: amqplib.ConsumeMessage | null) => void;
+
+    it('re-declares the queue, its bindings and the consumer on the same connection', async () => {
+      const channel = channels[0];
+      channel.assertQueue.mockClear();
+      channel.bindQueue.mockClear();
+
+      consumerCallback(channel)(null);
+      await vi.waitFor(() => expect(channel.consume).toHaveBeenCalledTimes(2));
+
+      expect(channel.assertQueue).toHaveBeenCalledWith('rabbit_queue_cp001', expect.anything());
+      expect(channel.bindQueue).toHaveBeenCalledWith(
+        'rabbit_queue_cp001',
+        'test-exchange',
+        '',
+        expect.objectContaining({ action: 'Heartbeat' }),
+      );
+      expect(amqplib.connect).toHaveBeenCalledTimes(1);
+      expect(connections[0].close).not.toHaveBeenCalled();
+    });
+
+    it('does not re-subscribe when the cancel comes from our own unsubscribe', async () => {
+      const channel = channels[0];
+      channel.deleteQueue.mockImplementation(() => {
+        // The broker sends basic.cancel before delete-ok.
+        consumerCallback(channel)(null);
+        return Promise.resolve({ messageCount: 0 });
+      });
+
+      await receiver.unsubscribe('cp001');
+      await new Promise((res) => setTimeout(res, 0));
+
+      expect(channel.consume).toHaveBeenCalledTimes(1);
+    });
+
+    it('forces a full reconnect when re-subscribing fails', async () => {
+      const channel = channels[0];
+      channel.assertQueue.mockRejectedValueOnce(new Error('NOT_FOUND - home node down'));
+
+      consumerCallback(channel)(null);
+
+      await vi.waitFor(() => expect(connections[0].close).toHaveBeenCalledTimes(1));
+    });
+  });
+
+  it('forces a full reconnect when the channel is closed while the connection stays up', () => {
+    const channelCloseHandler = channels[0].on.mock.calls.find(([event]) => event === 'close')?.[1];
+    expect(channelCloseHandler).toBeDefined();
+
+    channelCloseHandler();
+
+    return vi.waitFor(() => expect(connections[0].close).toHaveBeenCalledTimes(1));
   });
 });
