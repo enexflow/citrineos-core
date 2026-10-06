@@ -520,10 +520,4 @@ export interface ITenantRepository extends CrudRepository<Tenant> {
   createTenant(tenant: Tenant): Promise<Tenant>;
 }
 
-export interface ITenantPartnerRepository extends CrudRepository<TenantPartner> {
-  getHubPartner(
-    tenantId: number,
-    countryCode: string,
-    partyIds: string[],
-  ): Promise<TenantPartner | undefined>;
-}
+export interface ITenantPartnerRepository extends CrudRepository<TenantPartner> {}
