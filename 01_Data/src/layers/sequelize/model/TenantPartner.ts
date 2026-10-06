@@ -34,6 +34,9 @@ export class TenantPartner extends Model implements TenantPartnerDto {
   @Column({ type: DataType.STRING, allowNull: true })
   declare awsSecretCertificateArn?: string | null;
 
+  @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false })
+  declare realTimeTokenAuth: boolean;
+
   @HasMany(() => Authorization)
   declare authorizations: Authorization[];
 
