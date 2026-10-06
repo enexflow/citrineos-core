@@ -24,6 +24,7 @@ import {
   ChargingStationSequenceTypeEnum,
   ErrorCode,
   EventGroup,
+  IdTokenEnum,
   MessageOrigin,
   OCPP1_6,
   OCPP1_6_CallAction,
@@ -849,16 +850,14 @@ export class EVDriverModule extends AbstractModule {
       },
     };
     try {
-      const authorizations = await this._authorizeRepository.readAllByQuerystring(
-        context.tenantId,
-        {
+      const authorizations = (
+        await this._authorizeRepository.readAllByQuerystring(context.tenantId, {
           idToken: request.idTag,
-        },
-      );
-      if (!authorizations || authorizations.length === 0) {
-        this._logger.error(`No authorization found for idToken: ${request.idTag}`);
-        //below line is just to make it more explicit. Default status is already invalid.
-        response.idTagInfo.status = OCPP1_6.AuthorizeResponseStatus.Invalid;
+        })
+      ).filter((auth) => auth.ocpiAuthMethod !== AuthMethodEnum.AUTH_REQUEST);
+      if (authorizations.length === 0) {
+        this._logger.debug(`No authorization found for idToken: ${request.idTag}`);
+        response.idTagInfo.status = await this._authorizeUnknownOcpp16IdTag(request.idTag, context);
         await this.sendCallResultWithMessage(message, response);
         this._logger.debug('Authorize response sent:', response);
         return;
@@ -915,6 +914,29 @@ export class EVDriverModule extends AbstractModule {
       this._logger.debug('Authorize response sent:', messageConfirmation);
     });
     return;
+  }
+
+  private async _authorizeUnknownOcpp16IdTag(
+    idTag: string,
+    context: IMessageContext,
+  ): Promise<OCPP1_6.AuthorizeResponseStatus> {
+    if (!this._unknownTokenOcpiAuthorizer) {
+      return OCPP1_6.AuthorizeResponseStatus.Invalid;
+    }
+    // 1.6 idTags are untyped.
+    const status = await this._unknownTokenOcpiAuthorizer.authorize(
+      idTag,
+      IdTokenEnum.ISO14443,
+      context,
+    );
+    switch (status) {
+      case AuthorizationStatusEnum.Accepted:
+      case AuthorizationStatusEnum.Blocked:
+      case AuthorizationStatusEnum.Expired:
+        return OCPP1_6_Mapper.AuthorizationMapper.toIdTagInfoStatus(status);
+      default:
+        return OCPP1_6.AuthorizeResponseStatus.Invalid;
+    }
   }
 
   @AsHandler(OCPPVersion.OCPP1_6, OCPP1_6_CallAction.RemoteStartTransaction)
