@@ -197,4 +197,39 @@ describe('RabbitMqReceiver reconnection', () => {
     expect(channel).toBe(channels[2]);
     expect((receiver as any)._channel).toBe(channels[2]);
   });
+
+  it('keeps retrying when closing the failed connection never settles (no Close-Ok from the broker)', async () => {
+    vi.useFakeTimers();
+    await (receiver as any)._handleDisconnect();
+    (amqplib.connect as any).mockImplementationOnce(() => {
+      const channel = aFakeChannel();
+      channel.assertExchange.mockRejectedValue(new Error('ACCESS_REFUSED'));
+      const connection = aFakeConnection(channel);
+      // amqplib only settles close() on Close-Ok: a broker dying mid-close leaves it pending.
+      connection.close.mockReturnValue(new Promise(() => {}));
+      channels.push(channel);
+      connections.push(connection);
+      return Promise.resolve(connection);
+    });
+
+    const reconnect = (receiver as any)._connectOnce();
+    await vi.advanceTimersByTimeAsync(1000);
+    const channel = await reconnect;
+
+    expect(connections[1].close).toHaveBeenCalledTimes(1);
+    expect(amqplib.connect).toHaveBeenCalledTimes(3);
+    expect(channel).toBe(channels[2]);
+  });
+
+  it('registers error listeners before any setup call, so a refused setup cannot crash the process', () => {
+    const [connection] = connections;
+    const [channel] = channels;
+    const onError = (calls: unknown[][]) => calls.findIndex(([event]) => event === 'error');
+    const connectionErrorAt =
+      connection.on.mock.invocationCallOrder[onError(connection.on.mock.calls)];
+    const channelErrorAt = channel.on.mock.invocationCallOrder[onError(channel.on.mock.calls)];
+
+    expect(connectionErrorAt).toBeLessThan(connection.createChannel.mock.invocationCallOrder[0]);
+    expect(channelErrorAt).toBeLessThan(channel.assertExchange.mock.invocationCallOrder[0]);
+  });
 });

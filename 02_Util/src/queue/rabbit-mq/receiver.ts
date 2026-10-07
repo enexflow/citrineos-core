@@ -338,17 +338,22 @@ export class RabbitMqReceiver extends AbstractMessageHandler {
       let connection: Awaited<ReturnType<typeof amqplib.connect>> | undefined;
       try {
         connection = await amqplib.connect(url, { heartbeat: 10 });
+        // Listeners go on before any setup call: an unhandled 'error' (e.g. ACCESS_REFUSED on
+        // assertExchange) is thrown out of amqplib's frame loop and kills the process.
+        connection.on('error', (err) => {
+          this._logger.warn('RabbitMQ connection error during setup', err);
+        });
         this._connection = connection;
         const channel = await connection.createChannel();
+        channel.on('error', (err) => {
+          this._logger.error('AMQP channel error', err);
+        });
         // Assign channel immediately so post-reconnect resubscription can use it.
         this._channel = channel;
         const exchange = this._config.util.messageBroker.amqp?.exchange as string;
         if (exchange) {
           await channel.assertExchange(exchange, 'headers', { durable: false });
         }
-        channel.on('error', (err) => {
-          this._logger.error('AMQP channel error', err);
-        });
         // A channel can be closed by the broker (e.g. a 404/405 on a queue whose home node is
         // gone) while the connection stays up. Without this, the receiver keeps a dead channel
         // and never consumes again.
@@ -365,7 +370,7 @@ export class RabbitMqReceiver extends AbstractMessageHandler {
       } catch (err) {
         this._logger.error('RabbitMQ connect failed, triggering circuit breaker failure', err);
         if (connection) {
-          await this._closeFailedConnection(connection);
+          this._closeFailedConnection(connection);
         }
         this._circuitBreaker.triggerFailure((err as Error)?.message);
         // Wait for circuit breaker to allow retry (exponential backoff handled by circuit breaker)
@@ -378,19 +383,19 @@ export class RabbitMqReceiver extends AbstractMessageHandler {
    * Closes a connection whose setup was refused after connect (e.g. ACCESS_REFUSED on
    * assertExchange); otherwise every retry of {@link _connectWithRetry} leaks one connection.
    */
-  private async _closeFailedConnection(
-    connection: Awaited<ReturnType<typeof amqplib.connect>>,
-  ): Promise<void> {
+  private _closeFailedConnection(connection: Awaited<ReturnType<typeof amqplib.connect>>): void {
     if (this._connection === connection) {
       // Cleared first so the channel 'close' handler sees a superseded channel and stays idle.
       this._connection = undefined;
       this._channel = undefined;
     }
-    try {
-      await connection.close();
-    } catch (error) {
-      this._logger.warn('Closing RabbitMQ connection after failed setup failed.', error);
-    }
+    // Not awaited: close() only settles on Close-Ok, so a broker dying mid-close would stall
+    // the retry loop (and every _connectOnce() caller) forever.
+    Promise.resolve()
+      .then(() => connection.close())
+      .catch((error) => {
+        this._logger.warn('Closing RabbitMQ connection after failed setup failed.', error);
+      });
   }
 
   private _startReconnectInterval() {
