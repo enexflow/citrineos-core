@@ -113,6 +113,41 @@ describe('RabbitMqSender reconnection', () => {
     expect((sender as any)._channel).toBe(channels[1]);
   });
 
+  it('closes the connection when the broker closes the channel while the connection stays up, instead of leaking it', async () => {
+    // e.g. a 403 on publish closes the channel only. Dropping the connection reference without
+    // closing it left one open connection on the broker per reconnect.
+    const channelCloseHandler = channels[0].on.mock.calls.find(([event]) => event === 'close')?.[1];
+    expect(channelCloseHandler).toBeDefined();
+
+    channelCloseHandler();
+
+    await vi.waitFor(() => expect(connections[0].close).toHaveBeenCalledTimes(1));
+  });
+
+  it('leaves the current connection alone when a superseded channel closes', async () => {
+    const staleChannelCloseHandler = channels[0].on.mock.calls.find(
+      ([event]) => event === 'close',
+    )?.[1];
+    await (sender as any)._handleDisconnect();
+    await (sender as any)._connectOnce();
+
+    staleChannelCloseHandler();
+    await new Promise((res) => setTimeout(res, 0));
+
+    expect(connections[0].close).not.toHaveBeenCalled();
+    expect(connections[1].close).not.toHaveBeenCalled();
+  });
+
+  it('handles the disconnect itself when closing the connection of a closed channel fails', async () => {
+    connections[0].close.mockRejectedValue(new Error('Connection closed'));
+    const channelCloseHandler = channels[0].on.mock.calls.find(([event]) => event === 'close')?.[1];
+
+    channelCloseHandler();
+
+    await vi.waitFor(() => expect((sender as any)._connection).toBeUndefined());
+    expect((sender as any)._circuitBreaker.state).toBe('FAILING');
+  });
+
   it('closes the connection when its setup is refused after connect, instead of leaking one per retry', async () => {
     vi.useFakeTimers();
     await (sender as any)._handleDisconnect();

@@ -221,7 +221,10 @@ export class RabbitMqSender extends AbstractMessageSender implements IMessageSen
         if (exchange) {
           await channel.assertExchange(exchange, 'headers', { durable: false });
         }
-        channel.on('close', () => this._handleDisconnect());
+        // A channel can be closed by the broker (e.g. a 403/404 on publish) while the connection
+        // stays up. Dropping the connection instead of closing it would leak one per reconnect.
+        const channelConnection = connection;
+        channel.on('close', () => this._closeConnectionOfClosedChannel(channelConnection));
         this._setupConnectionListeners();
         this._circuitBreaker.triggerSuccess();
         return channel;
@@ -250,6 +253,28 @@ export class RabbitMqSender extends AbstractMessageSender implements IMessageSen
       .then(() => connection.close())
       .catch((error) => {
         this._logger.warn('Closing RabbitMQ connection after failed setup failed.', error);
+      });
+  }
+
+  /**
+   * Closes the connection behind a channel that was closed, so that the connection 'close'
+   * listener ({@link _handleDisconnect}) reconnects without leaving it open on the broker.
+   * No-op if `connection` has already been dropped or superseded by a newer connection.
+   */
+  private _closeConnectionOfClosedChannel(
+    connection: Awaited<ReturnType<typeof amqplib.connect>>,
+  ): void {
+    if (connection !== this._connection) {
+      return;
+    }
+    this._logger.warn('AMQP channel closed. Closing its connection to reconnect.');
+    Promise.resolve()
+      .then(() => connection.close())
+      .catch((error) => {
+        this._logger.warn('Closing RabbitMQ connection failed, handling as disconnect.', error);
+        if (this._connection === connection) {
+          void this._handleDisconnect();
+        }
       });
   }
 
