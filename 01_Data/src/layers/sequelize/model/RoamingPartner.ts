@@ -15,6 +15,9 @@ export class RoamingPartner extends Model {
   @Column({ type: DataType.STRING(10), allowNull: false })
   declare role: string;
 
+  @Column({ type: DataType.JSONB, allowNull: false, defaultValue: [] })
+  declare roles: Array<'CPO' | 'EMSP'>;
+
   @Column({ type: DataType.STRING(20), allowNull: false })
   declare status: string;
 
