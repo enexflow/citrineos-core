@@ -32,6 +32,8 @@ import {
   getStationIdFromIdentifier,
   getTenantIdFromIdentifier,
   mapToCallAction,
+  maskOcppMessageSecrets,
+  maskRawOcppMessageSecrets,
   MessageOrigin,
   MessageState,
   MessageTypeId,
@@ -272,7 +274,7 @@ export class MessageRouterImpl extends AbstractMessageRouter implements IMessage
       }
     } catch (error) {
       success = false; // ensure we return false in case of an error
-      this._logger.error('Error processing message:', message, error);
+      this._logger.error('Error processing message:', maskRawOcppMessageSecrets(message), error);
       const action = this.getActionFromIncompletelyParsedRpcMessage(rpcMessage, messageTypeId);
       if (messageTypeId != MessageTypeId.CallResult && messageTypeId != MessageTypeId.CallError) {
         const callError =
@@ -375,12 +377,16 @@ export class MessageRouterImpl extends AbstractMessageRouter implements IMessage
         this._logger.info(
           'Call already in progress, throwing retry exception',
           identifier,
-          message,
+          maskOcppMessageSecrets(message),
         );
         throw new RetryMessageError('Call already in progress');
       }
     } else {
-      this._logger.info('RegistrationStatus Rejected, unable to send', identifier, message);
+      this._logger.info(
+        'RegistrationStatus Rejected, unable to send',
+        identifier,
+        maskOcppMessageSecrets(message),
+      );
       return { success: false };
     }
   }
@@ -786,7 +792,12 @@ export class MessageRouterImpl extends AbstractMessageRouter implements IMessage
     try {
       await this._networkHook(identifier, rawMessage); // Throws an error if the message is not sent, or returns void
     } catch (error) {
-      this._logger.error('Failed to send message:', identifier, rawMessage, error);
+      this._logger.error(
+        'Failed to send message:',
+        identifier,
+        maskRawOcppMessageSecrets(rawMessage),
+        error,
+      );
       // Don't dispatch if the message was not sent
       return false;
     }
