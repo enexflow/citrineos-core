@@ -217,6 +217,8 @@ export const systemConfigInputSchema = z.object({
           .object({
             jwksUri: z.string(),
             issuer: z.string(),
+            // Overrides the iss discovered from `issuer`; see OIDCAuthProvider.
+            expectedIssuer: z.string().optional(),
             audience: z.string(),
             cacheTime: z.number().int().min(1).optional(),
             rateLimit: z.boolean().default(false).optional(),
@@ -521,6 +523,8 @@ export const systemConfigSchema = z
             .object({
               jwksUri: z.string(),
               issuer: z.string(),
+              // Overrides the iss discovered from `issuer`; see OIDCAuthProvider.
+              expectedIssuer: z.string().optional(),
               audience: z.string(),
               cacheTime: z.number().int().min(1).optional(),
               rateLimit: z.boolean(),
