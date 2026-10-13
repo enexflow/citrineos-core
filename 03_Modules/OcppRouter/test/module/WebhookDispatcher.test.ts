@@ -1,7 +1,13 @@
 // SPDX-FileCopyrightText: 2025 Contributors to the CitrineOS Project
 //
 // SPDX-License-Identifier: Apache-2.0
-import { createIdentifier, DEFAULT_TENANT_ID, MessageOrigin, MessageState } from '@citrineos/base';
+import {
+  createIdentifier,
+  DEFAULT_TENANT_ID,
+  MASKED_SECRET,
+  MessageOrigin,
+  MessageState,
+} from '@citrineos/base';
 import {
   IOCPPMessageRepository,
   ISubscriptionRepository,
@@ -719,6 +725,126 @@ describe('WebhookDispatcher', () => {
 
       expect(loggedOcppMessages()).toEqual([createOCPPMessage.mock.calls[0][1]]);
       expect(loggedOcppMessages()[0]).toMatchObject({ message: 'Any raw message' });
+    });
+  });
+
+  describe('credential masking (TECH-2381)', () => {
+    const password = 'S3cret-Station-Password!';
+
+    function setVariablesPasswordCall(): any[] {
+      return [
+        2,
+        'set-pwd-1',
+        'SetVariables',
+        {
+          setVariableData: [
+            {
+              component: { name: 'SecurityCtrlr' },
+              variable: { name: 'BasicAuthPassword' },
+              attributeType: 'Actual',
+              attributeValue: password,
+            },
+          ],
+        },
+      ];
+    }
+
+    function loggedLines(): string[] {
+      return vi.mocked(webhookDispatcher['_logger'].info).mock.calls.map(([line]) => String(line));
+    }
+
+    function subscriberBodies(): string[] {
+      return fetch.mock.calls.map((call) => String((call as any[])[1]?.body));
+    }
+
+    beforeEach(async () => {
+      vi.spyOn(webhookDispatcher['_logger'], 'info').mockReturnValue(undefined);
+      givenSubscriptions(
+        aSubscription({
+          stationId: 'station-1',
+          onConnect: false,
+          onMessage: true,
+          sentMessage: true,
+          messageRegexFilter: undefined,
+        }),
+      );
+      await givenRegisteredStations('station-1');
+    });
+
+    it('should record a masked copy of a sent SetVariables without altering the sent message', async () => {
+      const rpcMessage = setVariablesPasswordCall();
+      const sentMessage = structuredClone(rpcMessage);
+
+      await webhookDispatcher.dispatchMessageSent(
+        createIdentifier(DEFAULT_TENANT_ID, 'station-1'),
+        'SetVariables',
+        MessageState.Request,
+        'Any timestamp',
+        'ocpp2.0.1',
+        rpcMessage,
+      );
+
+      expect(rpcMessage).toEqual(sentMessage);
+      const stored = createOCPPMessage.mock.calls[0][1];
+      expect(stored.message[3].setVariableData[0].attributeValue).toBe(MASKED_SECRET);
+      expect(JSON.stringify(stored)).not.toContain(password);
+      expect(loggedLines().join('\n')).not.toContain(password);
+      expect(subscriberBodies()).toHaveLength(1);
+      expect(subscriberBodies()[0]).not.toContain(password);
+    });
+
+    it('should record a masked copy of a received NotifyReport', async () => {
+      const rpcMessage = [
+        2,
+        'report-1',
+        'NotifyReport',
+        {
+          requestId: 1,
+          generatedAt: '2026-10-13T00:00:00Z',
+          seqNo: 0,
+          reportData: [
+            {
+              component: { name: 'SecurityCtrlr' },
+              variable: { name: 'BasicAuthPassword' },
+              variableAttribute: [{ type: 'Actual', value: password }],
+            },
+          ],
+        },
+      ];
+
+      await webhookDispatcher.dispatchMessageReceived(
+        DEFAULT_TENANT_ID,
+        'station-1',
+        'Any timestamp',
+        'ocpp2.0.1',
+        'NotifyReport',
+        MessageState.Request,
+        rpcMessage,
+      );
+
+      const stored = createOCPPMessage.mock.calls[0][1];
+      expect(stored.message[3].reportData[0].variableAttribute[0].value).toBe(MASKED_SECRET);
+      expect(JSON.stringify(stored)).not.toContain(password);
+      expect(loggedLines().join('\n')).not.toContain(password);
+      expect(subscriberBodies()[0]).not.toContain(password);
+    });
+
+    it('should mask a raw frame that failed processing', async () => {
+      await webhookDispatcher.dispatchMessageReceivedUnparsed(
+        DEFAULT_TENANT_ID,
+        'station-1',
+        JSON.stringify(setVariablesPasswordCall()),
+        'Any timestamp',
+        'ocpp2.0.1',
+        'SetVariables',
+        MessageState.Request,
+      );
+
+      const stored = createOCPPMessage.mock.calls[0][1];
+      expect(stored.message).toContain(MASKED_SECRET);
+      expect(stored.message).not.toContain(password);
+      expect(loggedLines().join('\n')).not.toContain(password);
+      expect(subscriberBodies()[0]).not.toContain(password);
     });
   });
 

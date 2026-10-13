@@ -16,6 +16,7 @@ import {
   AsHandler,
   ErrorCode,
   EventGroup,
+  maskOcppPayloadSecrets,
   Namespace,
   OCPP1_6,
   OCPP1_6_CallAction,
@@ -24,6 +25,7 @@ import {
   OcppError,
   OCPPValidator,
   OCPPVersion,
+  omitReportedPasswordValues,
 } from '@citrineos/base';
 import type {
   IDeviceModelRepository,
@@ -247,11 +249,17 @@ export class ReportingModule extends AbstractModule {
     message: IMessage<OCPP2_0_1.NotifyReportRequest>,
     props?: HandlerProperties,
   ): Promise<void> {
-    this._logger.info('NotifyReport received:', message, props);
+    this._logger.info(
+      'NotifyReport received:',
+      { context: message.context, payload: maskOcppPayloadSecrets(message.payload) },
+      props,
+    );
     const timestamp = message.payload.generatedAt;
 
     try {
-      for (const reportDataType of message.payload.reportData ? message.payload.reportData : []) {
+      for (const reportedData of message.payload.reportData ? message.payload.reportData : []) {
+        // A value reported by the station must never replace the stored password hash.
+        const reportDataType = omitReportedPasswordValues(reportedData);
         // To keep consistency with VariableAttributeType defined in OCPP 2.0.1:
         // mutability: Default is ReadWrite when omitted.
         // if it is not present, we set it to ReadWrite

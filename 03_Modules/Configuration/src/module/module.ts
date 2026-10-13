@@ -19,6 +19,7 @@ import {
   ChargingStationSequenceTypeEnum,
   ErrorCode,
   EventGroup,
+  isOcpp16SecretConfigurationKey,
   MessageOrigin,
   Namespace,
   OCPP1_6,
@@ -899,6 +900,10 @@ export class ConfigurationModule extends AbstractModule {
     await this._cache.remove(OCPP1_6_CallAction.ChangeConfiguration, stationId);
     // Set each configuration on Charging Station
     for (const config of configurations) {
+      // A legacy credential row may be stale: replaying it would revert a rotated password.
+      if (isOcpp16SecretConfigurationKey(config.key)) {
+        continue;
+      }
       const correlationId = uuidv4();
 
       const cacheCallbackPromise: Promise<string | null> = this._cache.onChange(
@@ -979,7 +984,8 @@ export class ConfigurationModule extends AbstractModule {
 
     if (configurations && configurations.length > 0) {
       for (const config of configurations) {
-        if (config.key) {
+        // Credentials are write-only: a value reported by the station is never stored.
+        if (config.key && !isOcpp16SecretConfigurationKey(config.key)) {
           await this._changeConfigurationRepository.createOrUpdateChangeConfiguration(tenantId, {
             stationId,
             key: config.key,
@@ -1028,6 +1034,11 @@ export class ConfigurationModule extends AbstractModule {
         `Attempted ChangeConfiguration ${correlationId} for ${key}:${value} unsuccessful with status ${status}`,
       );
       return;
+    } else if (isOcpp16SecretConfigurationKey(key)) {
+      // The request was recorded masked, and a credential is never stored in clear.
+      this._logger.info(
+        `ChangeConfiguration ${correlationId} for ${key} ${status}, value not stored`,
+      );
     } else {
       const config = await this._changeConfigurationRepository.createOrUpdateChangeConfiguration(
         tenantId,
