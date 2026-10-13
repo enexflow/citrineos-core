@@ -12,6 +12,7 @@ import type { CallAction, OCPPVersionType } from '../../ocpp/rpc/message.js';
 import { ErrorCode, OcppError, OCPPVersion } from '../../ocpp/rpc/message.js';
 import { RequestBuilder } from '../../util/request.js';
 import { OidcTokenProvider } from '../../util/OidcTokenProvider.js';
+import { maskMessageForLog } from '../../util/SecretMasking.js';
 import type { ICache } from '../cache/cache.js';
 import type { IWebsocketConnection } from '../cache/types.js';
 import { CacheNamespace, createIdentifier } from '../cache/types.js';
@@ -166,7 +167,7 @@ export abstract class AbstractModule implements IModule {
         break;
       }
       default:
-        this._logger.error('Unknown message state', message);
+        this._logger.error('Unknown message state', maskMessageForLog(message));
         throw new Error('Unknown message state: ' + message.state);
     }
     try {
@@ -185,7 +186,7 @@ export abstract class AbstractModule implements IModule {
         );
       }
     } catch (error) {
-      this._logger.error('Failed handling message: ', error, message);
+      this._logger.error('Failed handling message: ', error, maskMessageForLog(message));
       if (message.state === MessageState.Request) {
         // CallErrors are only emitted for Calls
         this._logger.error('Sending CallError to ChargingStation...');

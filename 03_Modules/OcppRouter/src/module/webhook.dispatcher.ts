@@ -87,9 +87,9 @@ export class WebhookDispatcher {
     state: MessageState,
   ) {
     const identifier = createIdentifier(tenantId, stationId);
-    // The frame may be valid JSON that only failed later in processing.
-    const maskedMessage = maskRawOcppMessageSecrets(message);
     try {
+      // The frame may be valid JSON that only failed later in processing.
+      const maskedMessage = maskRawOcppMessageSecrets(message);
       // UUID generated so that unparsed messages don't end up referencing each other
       const messageId = uuidv4();
 

@@ -3,15 +3,22 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, expect, it } from 'vitest';
 import {
+  EventGroup,
   isOcpp16SecretConfigurationKey,
-  isPasswordVariable,
   MASKED_SECRET,
+  maskMessageForLog,
   maskOcppMessageSecrets,
   maskOcppPayloadSecrets,
   maskRawOcppMessageSecrets,
+  Message,
+  MessageOrigin,
+  MessageState,
   OCPP2_0_1,
+  OCPP1_6_CallAction,
+  OCPPVersion,
   omitReportedPasswordValues,
 } from '../../src';
+import { isPasswordVariable } from '../../src/util/SecretMasking.js';
 
 const PASSWORD = 'S3cret-Station-Password!';
 
@@ -214,6 +221,81 @@ describe('SecretMasking', () => {
       });
       expect(payload.value).toBe(PASSWORD);
     });
+
+    it('should mask the VPN and APN secrets of a SetNetworkProfile request', () => {
+      const payload: OCPP2_0_1.SetNetworkProfileRequest = {
+        configurationSlot: 1,
+        connectionData: {
+          ocppVersion: OCPP2_0_1.OCPPVersionEnumType.OCPP20,
+          ocppTransport: OCPP2_0_1.OCPPTransportEnumType.JSON,
+          ocppCsmsUrl: 'wss://csms.example/ocpp',
+          messageTimeout: 30,
+          securityProfile: 2,
+          ocppInterface: OCPP2_0_1.OCPPInterfaceEnumType.Wireless0,
+          vpn: {
+            server: 'vpn.example',
+            user: 'station',
+            password: PASSWORD,
+            key: 'vpn-shared-secret',
+            type: OCPP2_0_1.VPNEnumType.IPSec,
+          },
+          apn: {
+            apn: 'internet',
+            apnUserName: 'apn-user',
+            apnPassword: 'apn-secret',
+            simPin: 1234,
+            apnAuthentication: OCPP2_0_1.APNAuthenticationEnumType.CHAP,
+          },
+        },
+      };
+      const original = structuredClone(payload);
+
+      const masked = maskOcppPayloadSecrets(payload);
+
+      expect(masked.connectionData.vpn).toEqual({
+        ...original.connectionData.vpn,
+        password: MASKED_SECRET,
+        key: MASKED_SECRET,
+      });
+      expect(masked.connectionData.apn).toEqual({
+        ...original.connectionData.apn,
+        apnPassword: MASKED_SECRET,
+        simPin: MASKED_SECRET,
+      });
+      expect(masked.connectionData.ocppCsmsUrl).toBe('wss://csms.example/ocpp');
+      expect(payload).toEqual(original);
+    });
+
+    it('should keep a SetNetworkProfile request without VPN nor APN as is', () => {
+      const payload = { configurationSlot: 1, connectionData: { ocppCsmsUrl: 'wss://csms' } };
+
+      expect(maskOcppPayloadSecrets(payload)).toBe(payload);
+    });
+  });
+
+  describe('maskMessageForLog', () => {
+    it('should describe a bus message without its credentials nor its private fields', () => {
+      const payload = { key: 'AuthorizationKey', value: PASSWORD };
+      const message = new Message(
+        MessageOrigin.ChargingStationManagementSystem,
+        EventGroup.Configuration,
+        OCPP1_6_CallAction.ChangeConfiguration,
+        MessageState.Request,
+        { stationId: 'cp001', tenantId: 1, correlationId: 'c-1', timestamp: '' },
+        payload,
+        OCPPVersion.OCPP1_6,
+      );
+
+      const described = maskMessageForLog(message);
+
+      expect(described).toMatchObject({
+        action: OCPP1_6_CallAction.ChangeConfiguration,
+        context: { stationId: 'cp001', correlationId: 'c-1' },
+        payload: { key: 'AuthorizationKey', value: MASKED_SECRET },
+      });
+      expect(JSON.stringify(described)).not.toContain(PASSWORD);
+      expect(message.payload).toBe(payload);
+    });
   });
 
   describe('maskRawOcppMessageSecrets', () => {
@@ -224,6 +306,15 @@ describe('SecretMasking', () => {
 
       expect(masked).not.toContain(PASSWORD);
       expect(masked).toContain(MASKED_SECRET);
+    });
+
+    it('should mask a credential name hidden behind a JSON escape', () => {
+      const raw = JSON.stringify(setVariablesCall('BasicAuthPassword', PASSWORD)).replace(
+        'BasicAuthPassword',
+        'Basic\\u0041uthPassword',
+      );
+
+      expect(maskRawOcppMessageSecrets(raw)).not.toContain(PASSWORD);
     });
 
     it('should return clean or unparseable frames unchanged', () => {

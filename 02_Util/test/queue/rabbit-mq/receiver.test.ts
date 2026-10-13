@@ -303,6 +303,39 @@ describe('RabbitMqReceiver reconnection', () => {
       expect(channel.nack).not.toHaveBeenCalled();
     });
 
+    it('never logs a station password carried by a failed Call', async () => {
+      const password = 'S3cret-Station-Password!';
+      const message = {
+        content: Buffer.from(
+          JSON.stringify({
+            origin: 'csms',
+            eventGroup: 'configuration',
+            action: 'ChangeConfiguration',
+            state: 1,
+            context: { stationId: 'cp001', tenantId: 1, correlationId: 'c-1' },
+            payload: { key: 'AuthorizationKey', value: password },
+            protocol: 'ocpp1.6',
+          }),
+        ),
+        properties: {},
+        fields: {},
+      } as unknown as amqplib.ConsumeMessage;
+      vi.spyOn(receiver, 'handle').mockRejectedValue(new Error('cache down'));
+      const logError = vi.spyOn((receiver as any)._logger, 'error');
+
+      await (receiver as any)._onMessage(message, channels[0]);
+
+      expect(logError).toHaveBeenCalledTimes(1);
+      // Decode Buffers: the raw amqp content is a Buffer, which would hide the password otherwise.
+      const logged = JSON.stringify(logError.mock.calls[0], (_key, value) =>
+        value?.type === 'Buffer' && Array.isArray(value.data)
+          ? Buffer.from(value.data).toString()
+          : value,
+      );
+      expect(logged).toContain('ChangeConfiguration');
+      expect(logged).not.toContain(password);
+    });
+
     it('does not throw when the channel closed during the backoff', async () => {
       vi.useFakeTimers();
       const channel = channels[0];

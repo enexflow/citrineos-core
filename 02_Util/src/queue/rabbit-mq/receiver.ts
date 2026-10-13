@@ -13,6 +13,7 @@ import {
   AbstractMessageHandler,
   CacheNamespace,
   CircuitBreaker,
+  maskMessageForLog,
   Message,
   RetryMessageError,
 } from '@citrineos/base';
@@ -852,7 +853,13 @@ export class RabbitMqReceiver extends AbstractMessageHandler {
           break;
         } catch (error) {
           if (!(error instanceof RetryMessageError)) {
-            this._logger.error('Error while processing message:', error, message);
+            this._logger.error(
+              'Error while processing message:',
+              error,
+              message.fields,
+              message.properties,
+              this._maskedContentForLog(message),
+            );
             break;
           }
           const delay = RabbitMqReceiver.RETRY_DELAYS_MS[attempt];
@@ -868,6 +875,15 @@ export class RabbitMqReceiver extends AbstractMessageHandler {
         }
       }
       this._settle(() => channel.ack(message));
+    }
+  }
+
+  /** The content of a module-to-router Call can carry a station password in clear. */
+  private _maskedContentForLog(message: amqplib.ConsumeMessage): unknown {
+    try {
+      return maskMessageForLog(this._parseMessage(message));
+    } catch {
+      return { unparseableContentBytes: message.content.length };
     }
   }
 

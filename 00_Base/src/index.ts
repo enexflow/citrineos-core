@@ -116,8 +116,8 @@ export type { OidcTokenProviderConfig } from './util/OidcTokenProvider.js';
 export { RequestBuilder } from './util/request.js';
 export {
   isOcpp16SecretConfigurationKey,
-  isPasswordVariable,
   MASKED_SECRET,
+  maskMessageForLog,
   maskOcppMessageSecrets,
   maskOcppPayloadSecrets,
   maskRawOcppMessageSecrets,

@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2025 Contributors to the CitrineOS Project
 //
 // SPDX-License-Identifier: Apache-2.0
+import type { OcppRequest, OcppResponse } from '../index.js';
+import type { IMessage } from '../interfaces/messages/index.js';
 import { OCPP2_0_1 } from '../ocpp/model/index.js';
 import { MessageTypeId } from '../ocpp/rpc/message.js';
 
@@ -9,9 +11,11 @@ export const MASKED_SECRET = '********';
 
 type JsonRecord = Record<string, unknown>;
 
-const PASSWORD_VARIABLE_NAMES = new Set(['basicauthpassword']);
+const PASSWORD_VARIABLE_NAME = 'basicauthpassword';
 // OCPP 1.6 Security Whitepaper: AuthorizationKey is the Basic Auth password of the station.
-const OCPP16_SECRET_CONFIGURATION_KEYS = new Set(['authorizationkey']);
+const OCPP16_SECRET_CONFIGURATION_KEY = 'authorizationkey';
+// Every name maskOcppPayloadSecrets reacts to; a JSON escape could hide one, so it forces a parse.
+const RAW_SECRET_MARKER = /basicauthpassword|passwordstring|authorizationkey|connectiondata|\\u/i;
 
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -21,18 +25,36 @@ function isRecord(value: unknown): value is JsonRecord {
 export function isPasswordVariable(variableName: unknown, dataType?: unknown): boolean {
   return (
     dataType === OCPP2_0_1.DataEnumType.passwordString ||
-    (typeof variableName === 'string' && PASSWORD_VARIABLE_NAMES.has(variableName.toLowerCase()))
+    (typeof variableName === 'string' && variableName.toLowerCase() === PASSWORD_VARIABLE_NAME)
   );
 }
 
 /** Tell whether an OCPP 1.6 configuration key holds a credential. */
 export function isOcpp16SecretConfigurationKey(key: unknown): boolean {
-  return typeof key === 'string' && OCPP16_SECRET_CONFIGURATION_KEYS.has(key.toLowerCase());
+  return typeof key === 'string' && key.toLowerCase() === OCPP16_SECRET_CONFIGURATION_KEY;
 }
 
 function maskField(item: JsonRecord, field: string): JsonRecord {
   const value = item[field];
-  return typeof value === 'string' && value !== '' ? { ...item, [field]: MASKED_SECRET } : item;
+  const isSecret = (typeof value === 'string' && value !== '') || typeof value === 'number';
+  return isSecret ? { ...item, [field]: MASKED_SECRET } : item;
+}
+
+function maskFields(item: JsonRecord, fields: string[]): JsonRecord {
+  return fields.reduce((masked, field) => maskField(masked, field), item);
+}
+
+function maskNested(
+  payload: JsonRecord,
+  field: string,
+  mask: (item: JsonRecord) => JsonRecord,
+): JsonRecord {
+  const nested = payload[field];
+  if (!isRecord(nested)) {
+    return payload;
+  }
+  const masked = mask(nested);
+  return masked === nested ? payload : { ...payload, [field]: masked };
 }
 
 function mapItems(
@@ -91,6 +113,13 @@ export function maskOcppPayloadSecrets<T>(payload: T): T {
   if (isOcpp16SecretConfigurationKey(masked.key)) {
     masked = maskField(masked, 'value');
   }
+  // 2.0.1 SetNetworkProfileRequest
+  masked = maskNested(masked, 'connectionData', (connectionData) => {
+    const withVpn = maskNested(connectionData, 'vpn', (vpn) =>
+      maskFields(vpn, ['password', 'key']),
+    );
+    return maskNested(withVpn, 'apn', (apn) => maskFields(apn, ['apnPassword', 'simPin']));
+  });
   return masked as T;
 }
 
@@ -120,6 +149,9 @@ export function maskOcppMessageSecrets<T>(rpcMessage: T): T {
 
 /** Mask credentials in a raw OCPP-J frame; an unparseable frame is returned as is. */
 export function maskRawOcppMessageSecrets(rawMessage: string): string {
+  if (!RAW_SECRET_MARKER.test(rawMessage)) {
+    return rawMessage;
+  }
   let parsed: unknown;
   try {
     parsed = JSON.parse(rawMessage);
@@ -128,6 +160,19 @@ export function maskRawOcppMessageSecrets(rawMessage: string): string {
   }
   const masked = maskOcppMessageSecrets(parsed);
   return masked === parsed ? rawMessage : JSON.stringify(masked);
+}
+
+/** Describe a bus message for a log line; never spread a Message, its private _payload would leak. */
+export function maskMessageForLog(message: IMessage<OcppRequest | OcppResponse>): JsonRecord {
+  return {
+    origin: message.origin,
+    eventGroup: message.eventGroup,
+    action: message.action,
+    state: message.state,
+    protocol: message.protocol,
+    context: message.context,
+    payload: maskOcppPayloadSecrets(message.payload),
+  };
 }
 
 /** Drop the values a station reports for a credential, so a report never replaces the stored hash. */
@@ -141,6 +186,7 @@ export function omitReportedPasswordValues(
   }
   return {
     ...reportData,
+    // Remove the key, not just the value: DeviceModel overwrites the hash whenever 'value' is present.
     variableAttribute: reportData.variableAttribute.map(
       ({ value: _value, ...attribute }) => attribute,
     ) as OCPP2_0_1.ReportDataType['variableAttribute'],
