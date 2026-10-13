@@ -197,6 +197,15 @@
     "/ocpp/2.0.1/smartcharging/getCompositeSchedule": {
       "POST": ["user", "admin"]
     },
+    "/ocpp/1.6/smartcharging/setChargingProfile": {
+      "POST": ["user", "admin"]
+    },
+    "/ocpp/1.6/smartcharging/clearChargingProfile": {
+      "POST": ["user", "admin"]
+    },
+    "/ocpp/1.6/smartcharging/getCompositeSchedule": {
+      "POST": ["user", "admin"]
+    },
     "/ocpp/2.0.1/transactions/costUpdated": {
       "POST": ["user", "admin"]
     },
