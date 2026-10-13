@@ -14,6 +14,7 @@ import fs from 'fs';
 import type { OpenAPIV3_1 } from 'openapi-types';
 import { OpenAPIV2, OpenAPIV3 } from 'openapi-types';
 import * as packageJson from '../../package.json' with { type: 'json' };
+import { isApiDocsExposed } from './apiDocs.js';
 
 /**
  * This transformation is used to set default tags
@@ -172,8 +173,17 @@ const registerFastifySwagger = (systemConfig: SystemConfig, server: FastifyInsta
   });
 };
 
-export async function initSwagger(systemConfig: SystemConfig, server: FastifyInstance) {
+export async function initSwagger(
+  systemConfig: SystemConfig,
+  server: FastifyInstance,
+  exposeDocs: boolean = isApiDocsExposed(),
+) {
   registerFastifySwagger(systemConfig, server);
-  registerSwaggerUi(systemConfig, server);
+  // enexflow: swagger-ui owns all docs routes; server.swagger() still builds the spec.
+  if (exposeDocs) {
+    registerSwaggerUi(systemConfig, server);
+  } else {
+    console.log('API docs are not served in this environment');
+  }
   await registerFastifyAuth(server);
 }
