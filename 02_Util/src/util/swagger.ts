@@ -182,8 +182,6 @@ export async function initSwagger(
   // enexflow: swagger-ui owns all docs routes; server.swagger() still builds the spec.
   if (exposeDocs) {
     registerSwaggerUi(systemConfig, server);
-  } else {
-    console.log('API docs are not served in this environment');
   }
   await registerFastifyAuth(server);
 }

@@ -1,10 +1,12 @@
 // SPDX-FileCopyrightText: 2025 Contributors to the CitrineOS Project
 //
 // SPDX-License-Identifier: Apache-2.0
-import type { SystemConfig } from '@citrineos/base';
+import type { IApiAuthProvider, SystemConfig } from '@citrineos/base';
+import { ApiAuthenticationResult, ApiAuthorizationResult } from '@citrineos/base';
 import Fastify from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
-import { isApiDocsExposed } from '../../src/util/apiDocs.js';
+import { apiAuthPluginFp } from '../../src/authorization/ApiAuthPlugin.js';
+import { apiDocsAuthExemptRoutes, isApiDocsExposed } from '../../src/util/apiDocs.js';
 import { initSwagger } from '../../src/util/swagger.js';
 
 const IN_CLUSTER = { KUBERNETES_SERVICE_HOST: '10.100.0.1' };
@@ -59,5 +61,40 @@ describe('initSwagger docs routes', () => {
     for (const url of ['/docs/', '/docs/json', '/docs/yaml']) {
       expect((await app.inject({ method: 'GET', url })).statusCode, url).toBe(200);
     }
+  });
+});
+
+describe('API auth exemption for docs routes', () => {
+  const rejectAll: IApiAuthProvider = {
+    extractToken: async () => null,
+    authenticateToken: async () => ApiAuthenticationResult.failure('rejected'),
+    authorizeUser: async () => ApiAuthorizationResult.failure('rejected'),
+  };
+  let server: ReturnType<typeof Fastify> | undefined;
+
+  const start = async (exposeDocs: boolean) => {
+    server = Fastify();
+    await server.register(apiAuthPluginFp, {
+      provider: rejectAll,
+      options: { excludedRoutes: ['/health', ...apiDocsAuthExemptRoutes(exposeDocs)] },
+    });
+    server.get('/docs/x', async () => ({ ok: true }));
+    await server.ready();
+    return server;
+  };
+
+  afterEach(async () => {
+    await server?.close();
+    server = undefined;
+  });
+
+  it('requires auth for any route under /docs when docs are hidden', async () => {
+    const app = await start(false);
+    expect((await app.inject({ method: 'GET', url: '/docs/x' })).statusCode).toBe(401);
+  });
+
+  it('keeps the docs exemption when docs are exposed', async () => {
+    const app = await start(true);
+    expect((await app.inject({ method: 'GET', url: '/docs/x' })).statusCode).toBe(200);
   });
 });

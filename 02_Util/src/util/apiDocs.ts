@@ -4,6 +4,7 @@
 
 import fs from 'fs';
 
+// enexflow: twin of citrineos-ocpi 00_Base/src/util/apiDocs.ts, keep both rules in sync.
 // enexflow: APP_ENV is "local" in every cluster, so the pod namespace is the only env marker.
 export const API_DOCS_NAMESPACES: ReadonlySet<string> = new Set(['dev', 'staging']);
 
@@ -29,4 +30,9 @@ export function isApiDocsExposed(
   }
   // In a pod without a mounted namespace we cannot tell prod apart, so stay closed.
   return !env.KUBERNETES_SERVICE_HOST;
+}
+
+/** Docs routes exempt from API auth: none when docs are hidden, so nothing under /docs skips auth. */
+export function apiDocsAuthExemptRoutes(exposeDocs: boolean = isApiDocsExposed()): string[] {
+  return exposeDocs ? ['/docs'] : [];
 }
