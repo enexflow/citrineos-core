@@ -11,7 +11,7 @@
 
 - **Discipline de fork** : préfère des changements rebasables sur l'upstream ; isole les specifics enexflow ; évite les refactos massives qui compliquent le sync.
 - **Gate avant PR** : `npm run lint` + `npm run test` (+ `npm run prettier`). Build : `npm run build`. (`npm run install-all` / `fresh` pour bootstrap.)
-- **Branches/PR** : base `env/staging`, conventional commits **ASCII**, ne pas merger soi-même.
+- **Branches/PR** : partir de `env/dev` à jour, PR vers `env/dev`, conventional commits **ASCII**, ne pas merger soi-même.
 - Testable via le multiplexeur OCPP + le simulateur `mont_blanc` (profil docker `citrine`, côté sizopt).
 
 ## Cross-repo
