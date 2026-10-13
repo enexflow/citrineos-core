@@ -60,12 +60,14 @@ import {
 } from '@citrineos/transactions';
 import {
   apiAuthPluginFp,
+  apiDocsAuthExemptRoutes,
   Authenticator,
   BasicAuthenticationFilter,
   CertificateAuthorityService,
   ConnectedStationFilter,
   IdGenerator,
   initSwagger,
+  isApiDocsExposed,
   LocalBypassAuthProvider,
   MemoryCache,
   NetworkProfileFilter,
@@ -308,7 +310,11 @@ export class CitrineOSServer {
 
   protected async initSwagger() {
     if (this._config.util.swagger) {
-      await initSwagger(this._config, this._server);
+      const exposeDocs = isApiDocsExposed();
+      if (!exposeDocs) {
+        this._logger.info('API docs are not served in this environment');
+      }
+      await initSwagger(this._config, this._server, exposeDocs);
     }
   }
 
@@ -327,7 +333,7 @@ export class CitrineOSServer {
       options: {
         excludedRoutes: [
           '/health', // Health check endpoint
-          '/docs', // API documentation
+          ...apiDocsAuthExemptRoutes(), // API documentation, only where it is served
         ],
         debug: this._config.logLevel <= 2, // Enable debug logs in dev mode
       },
