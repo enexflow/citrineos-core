@@ -125,6 +125,12 @@
     "/ocpp/1.6/evdriver/remoteStopTransaction": {
       "POST": ["user", "admin"]
     },
+    "/ocpp/1.6/evdriver/unlockConnector": {
+      "POST": ["user", "admin", "external_support"]
+    },
+    "/ocpp/1.6/evdriver/clearCache": {
+      "POST": ["user", "admin"]
+    },
     "/data/evdriver/authorization": {
       "GET": ["user", "admin"],
       "PUT": ["user", "admin"],
