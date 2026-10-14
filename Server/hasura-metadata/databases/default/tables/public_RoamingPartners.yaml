@@ -65,6 +65,7 @@ select_permissions:
         - name
         - signatureDate
         - contractStartDate
+        - roles
       filter: {}
     comment: Read-only role for the Patterm timeseries_api roaming proxy (TECH-2138); a hub-fed Location carries the hub as OwnerTenantPartner, so the real CPO can only be read here.
   - role: user
@@ -79,6 +80,7 @@ select_permissions:
         - name
         - signatureDate
         - contractStartDate
+        - roles
       filter: {}
       allow_aggregations: true
     comment: ""
