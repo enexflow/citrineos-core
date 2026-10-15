@@ -7,6 +7,7 @@ import {
   MASKED_SECRET,
   MessageOrigin,
   MessageState,
+  OidcTokenProvider,
 } from '@citrineos/base';
 import {
   IOCPPMessageRepository,
@@ -973,6 +974,64 @@ describe('WebhookDispatcher', () => {
       expect(fetch).toHaveBeenCalledTimes(1);
       expect(fetch).toHaveBeenCalledWith(subscription.url, expect.anything());
       expect(fetch).not.toHaveBeenCalledWith(anotherSubscription.url, expect.anything());
+    });
+  });
+
+  describe('OIDC authentication', () => {
+    function dispatcherWithToken(getToken: () => Promise<string>): WebhookDispatcher {
+      return new WebhookDispatcher(ocppMessageRepository, subscriptionRepository, undefined, {
+        getToken,
+      } as unknown as OidcTokenProvider);
+    }
+
+    it('should send a bearer token when a token provider is configured', async () => {
+      const subscription = aSubscription({ onConnect: true });
+      givenSubscriptions(subscription);
+      const dispatcher = dispatcherWithToken(() => Promise.resolve('service-token'));
+
+      await dispatcher.register(subscription.tenantId, subscription.stationId);
+
+      expect(fetch).toHaveBeenCalledWith(subscription.url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer service-token',
+        },
+        body: JSON.stringify({
+          stationId: subscription.stationId,
+          event: 'connected',
+        }),
+      });
+    });
+
+    it('should not send an authorization header without token provider', async () => {
+      const subscription = aSubscription({ onConnect: true });
+      givenSubscriptions(subscription);
+
+      await webhookDispatcher.register(subscription.tenantId, subscription.stationId);
+
+      expect(fetch).toHaveBeenCalledWith(subscription.url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: expect.any(String),
+      });
+    });
+
+    it('should not send the request when the token cannot be obtained', async () => {
+      const subscription = aSubscription({ onConnect: true });
+      const dispatcher = dispatcherWithToken(() => Promise.reject(new Error('keycloak down')));
+
+      const sent = await (
+        dispatcher as unknown as {
+          _subscriptionCallback: (body: object, url: string) => Promise<boolean>;
+        }
+      )._subscriptionCallback(
+        { stationId: subscription.stationId, event: 'connected' },
+        subscription.url,
+      );
+
+      expect(sent).toBe(false);
+      expect(fetch).not.toHaveBeenCalled();
     });
   });
 
