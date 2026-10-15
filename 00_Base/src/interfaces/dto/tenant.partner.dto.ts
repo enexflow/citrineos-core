@@ -13,6 +13,7 @@ export const RoamingPartnerSchema = BaseSchema.extend({
   name: z.string().nullable().optional(),
   signatureDate: z.coerce.date().nullable().optional(),
   contractStartDate: z.coerce.date().nullable().optional(),
+  roles: z.array(z.enum(['CPO', 'EMSP'])).optional(),
 });
 
 export const TenantPartnerSchema = BaseSchema.extend({

@@ -70,6 +70,7 @@ select_permissions:
         - status
         - tenantPartnerId
         - updatedAt
+        - disableOCPI
       filter: {}
       allow_aggregations: true
     comment: Read-only role for the OCPI monitor UI
@@ -96,10 +97,11 @@ select_permissions:
         - updatedAt
         - ocpiAuthMethod
         - ocpiAuthReference
+        - disableOCPI
       filter:
         tenants:
           tenant:
             id:
               _eq: x-hasura-tenant-id
       allow_aggregations: true
-    comment: ""
+    comment: ''

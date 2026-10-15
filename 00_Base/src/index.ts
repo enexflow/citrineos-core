@@ -114,6 +114,15 @@ export { MeterValueUtils } from './util/MeterValueUtils.js';
 export { OidcTokenProvider } from './util/OidcTokenProvider.js';
 export type { OidcTokenProviderConfig } from './util/OidcTokenProvider.js';
 export { RequestBuilder } from './util/request.js';
+export {
+  isOcpp16SecretConfigurationKey,
+  MASKED_SECRET,
+  maskMessageForLog,
+  maskOcppMessageSecrets,
+  maskOcppPayloadSecrets,
+  maskRawOcppMessageSecrets,
+  omitReportedPasswordValues,
+} from './util/SecretMasking.js';
 
 export const LOG_LEVEL_OCPP = 10;
 

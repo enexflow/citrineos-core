@@ -22,6 +22,7 @@ import type {
 } from '../../index.js';
 import { ErrorCode, MessageOrigin, MessageState, OcppError, OCPPVersion } from '../../index.js';
 import { OCPPValidator } from '../modules/OCPPValidator.js';
+import { maskMessageForLog } from '../../util/SecretMasking.js';
 import type { IMessageRouter } from './Router.js';
 
 export abstract class AbstractMessageRouter implements IMessageRouter {
@@ -194,7 +195,7 @@ export abstract class AbstractMessageRouter implements IMessageRouter {
         break;
       }
       default:
-        this._logger.error('Unknown message state', message);
+        this._logger.error('Unknown message state', maskMessageForLog(message));
         throw new Error('Unknown message state: ' + message.state);
     }
   }
