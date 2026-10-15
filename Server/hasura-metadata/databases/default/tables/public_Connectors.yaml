@@ -49,6 +49,8 @@ select_permissions:
         - info
         - maximumPowerWatts
         - stationId
+        - format
+        - powerType
       filter: {}
     comment: Read-only role for the Patterm timeseries_api roaming proxy (TECH-1807); SELECT only, cross-tenant (proxy filters by partner in-query).
   - role: user
