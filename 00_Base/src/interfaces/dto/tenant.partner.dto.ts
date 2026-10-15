@@ -22,6 +22,7 @@ export const TenantPartnerSchema = BaseSchema.extend({
   partyId: z.string().nullable().optional(),
   partnerProfileOCPI: PartnerProfileSchema,
   awsSecretCertificateArn: z.string().nullable().optional(),
+  realTimeTokenAuth: z.boolean().optional(),
   roamingPartners: z.array(RoamingPartnerSchema).nullable().optional(),
 });
 

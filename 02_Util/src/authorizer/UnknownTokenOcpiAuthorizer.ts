@@ -8,7 +8,7 @@ import {
   type IMessageContext,
   type SystemConfig,
 } from '@citrineos/base';
-import type { ILocationRepository, ITenantPartnerRepository } from '@citrineos/data';
+import type { ILocationRepository } from '@citrineos/data';
 import type { ILogObj } from 'tslog';
 import { Logger } from 'tslog';
 import { OidcTokenProvider } from '../authorization/index.js';
@@ -17,30 +17,24 @@ import type {
   RealTimeAuthorizationResponse,
 } from './RealTimeAuthorizer.js';
 
-// The hub TenantPartner that unknown tokens are delegated to for real-time authorization.
-// Warning : As of now, only one hub partner is supported. In case of several partners, need for a rework to send authorization to all partners.
-const HUB_PARTNER_COUNTRY_CODE = 'FR';
-const HUB_PARTNER_PARTY_IDS = ['007', '107'];
+const REAL_TIME_AUTH_REQUEST_TIMEOUT_MS = 15_000;
 
 /**
  * Delegates real-time authorization of unknown tokens to the OCPI module's
- * `/realTimeAuth` endpoint, which performs the OCPI `POST /authorize` against the eMSP.
+ * `/realTimeAuth` endpoint, which asks every real-time eMSP/hub partner in parallel.
  */
 export class UnknownTokenOcpiAuthorizer {
   private readonly _locationRepository: ILocationRepository;
-  private readonly _tenantPartnerRepository: ITenantPartnerRepository;
   private readonly _config: SystemConfig;
   private readonly _logger: Logger<ILogObj>;
   private readonly _oidcTokenProvider?: OidcTokenProvider;
 
   constructor(
     locationRepository: ILocationRepository,
-    tenantPartnerRepository: ITenantPartnerRepository,
     config: SystemConfig,
     logger?: Logger<ILogObj>,
   ) {
     this._locationRepository = locationRepository;
-    this._tenantPartnerRepository = tenantPartnerRepository;
     this._config = config;
     this._logger = logger
       ? logger.getSubLogger({ name: this.constructor.name })
@@ -55,25 +49,22 @@ export class UnknownTokenOcpiAuthorizer {
     idTokenType: IdTokenEnumType,
     context: IMessageContext,
   ): Promise<AuthorizationStatusEnumType> {
-    const hubPartner = await this._tenantPartnerRepository.getHubPartner(
-      context.tenantId,
-      HUB_PARTNER_COUNTRY_CODE,
-      HUB_PARTNER_PARTY_IDS,
-    );
-    if (!hubPartner?.id) {
-      this._logger.debug(
-        `No hub TenantPartner found for tenant ${context.tenantId} (${HUB_PARTNER_COUNTRY_CODE} ${HUB_PARTNER_PARTY_IDS.join('/')}); cannot delegate real-time authorization`,
-      );
-      return AuthorizationStatusEnum.Unknown;
-    }
-
     const chargingStation = await this._locationRepository.readChargingStationByStationId(
       context.tenantId,
       context.stationId,
     );
+    const location = chargingStation?.locationId
+      ? await this._locationRepository.readByKey(context.tenantId, chargingStation.locationId)
+      : undefined;
+    if (location?.disableOCPI) {
+      this._logger.debug(
+        `OCPI disabled on location ${location.id} of station ${context.stationId}, skipping partner authorization`,
+      );
+      return AuthorizationStatusEnum.Unknown;
+    }
 
     const payload: RealTimeAuthorizationRequestBody = {
-      tenantPartnerId: hubPartner.id,
+      tenantId: context.tenantId,
       idToken,
       idTokenType,
       locationId: chargingStation?.locationId?.toString(),
@@ -81,9 +72,7 @@ export class UnknownTokenOcpiAuthorizer {
     };
 
     const url = this._buildRealTimeAuthUrl();
-    this._logger.debug(
-      `Delegating unknown-token real-time authorization for partner ${hubPartner.id} to ${url}`,
-    );
+    this._logger.debug(`Delegating unknown-token real-time authorization to ${url}`);
 
     try {
       const headers: { [key: string]: string } = {
@@ -108,6 +97,7 @@ export class UnknownTokenOcpiAuthorizer {
         method: 'POST',
         headers,
         body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(REAL_TIME_AUTH_REQUEST_TIMEOUT_MS),
       });
 
       if (!response.ok) {
