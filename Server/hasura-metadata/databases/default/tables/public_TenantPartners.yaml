@@ -65,6 +65,7 @@ select_permissions:
         - countryCode
         - id
         - partyId
+        - realTimeTokenAuth
       filter: {}
     comment: Read-only role for the OCPI monitor UI
   - role: roaming_reader
