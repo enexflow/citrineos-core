@@ -32,4 +32,7 @@ export class RoamingPartner extends Model {
 
   @Column({ type: DataType.DATE, allowNull: true })
   declare contractStartDate: Date | null;
+
+  @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false })
+  declare isHdv: boolean;
 }
