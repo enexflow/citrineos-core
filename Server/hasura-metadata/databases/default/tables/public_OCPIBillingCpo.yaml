@@ -18,6 +18,16 @@ select_permissions:
         - location
         - billed_to_tenant_partner_id
         - billed_to_roaming_partner_id
+        - ocpi_cdr_id
+        - successfully_sent_at
+        - station_id
+        - transaction_id
+        - tenant_partner_country_code
+        - tenant_partner_party_id
+        - tenant_partner_name
+        - roaming_partner_country_code
+        - roaming_partner_party_id
+        - roaming_partner_name
       filter:
         tenantId:
           _eq: x-hasura-tenant-id
