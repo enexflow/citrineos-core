@@ -113,7 +113,18 @@ export class DefaultSequelizeInstance {
         }
       }
     }
-    this.logger.info(`Sequelize initialized: ${JSON.stringify(this.instance?.config || {})}`);
+    // Allowlist: the resolved config carries the password, so new fields must not be logged by default.
+    const loggedConfig = this.instance
+      ? {
+          dialect: this.instance.getDialect(),
+          host: this.instance.config.host,
+          port: this.instance.config.port,
+          database: this.instance.config.database,
+          username: this.instance.config.username,
+          pool: this.instance.config.pool,
+        }
+      : {};
+    this.logger.info(`Sequelize initialized: ${JSON.stringify(loggedConfig)}`);
   }
 
   private static async syncDb(): Promise<void> {
