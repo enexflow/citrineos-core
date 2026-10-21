@@ -1,7 +1,14 @@
 // SPDX-FileCopyrightText: 2025 Contributors to the CitrineOS Project
 //
 // SPDX-License-Identifier: Apache-2.0
-import { createIdentifier, DEFAULT_TENANT_ID, MessageOrigin, MessageState } from '@citrineos/base';
+import {
+  createIdentifier,
+  DEFAULT_TENANT_ID,
+  MASKED_SECRET,
+  MessageOrigin,
+  MessageState,
+  OidcTokenProvider,
+} from '@citrineos/base';
 import {
   IOCPPMessageRepository,
   ISubscriptionRepository,
@@ -722,6 +729,126 @@ describe('WebhookDispatcher', () => {
     });
   });
 
+  describe('credential masking (TECH-2381)', () => {
+    const password = 'S3cret-Station-Password!';
+
+    function setVariablesPasswordCall(): any[] {
+      return [
+        2,
+        'set-pwd-1',
+        'SetVariables',
+        {
+          setVariableData: [
+            {
+              component: { name: 'SecurityCtrlr' },
+              variable: { name: 'BasicAuthPassword' },
+              attributeType: 'Actual',
+              attributeValue: password,
+            },
+          ],
+        },
+      ];
+    }
+
+    function loggedLines(): string[] {
+      return vi.mocked(webhookDispatcher['_logger'].info).mock.calls.map(([line]) => String(line));
+    }
+
+    function subscriberBodies(): string[] {
+      return fetch.mock.calls.map((call) => String((call as any[])[1]?.body));
+    }
+
+    beforeEach(async () => {
+      vi.spyOn(webhookDispatcher['_logger'], 'info').mockReturnValue(undefined);
+      givenSubscriptions(
+        aSubscription({
+          stationId: 'station-1',
+          onConnect: false,
+          onMessage: true,
+          sentMessage: true,
+          messageRegexFilter: undefined,
+        }),
+      );
+      await givenRegisteredStations('station-1');
+    });
+
+    it('should record a masked copy of a sent SetVariables without altering the sent message', async () => {
+      const rpcMessage = setVariablesPasswordCall();
+      const sentMessage = structuredClone(rpcMessage);
+
+      await webhookDispatcher.dispatchMessageSent(
+        createIdentifier(DEFAULT_TENANT_ID, 'station-1'),
+        'SetVariables',
+        MessageState.Request,
+        'Any timestamp',
+        'ocpp2.0.1',
+        rpcMessage,
+      );
+
+      expect(rpcMessage).toEqual(sentMessage);
+      const stored = createOCPPMessage.mock.calls[0][1];
+      expect(stored.message[3].setVariableData[0].attributeValue).toBe(MASKED_SECRET);
+      expect(JSON.stringify(stored)).not.toContain(password);
+      expect(loggedLines().join('\n')).not.toContain(password);
+      expect(subscriberBodies()).toHaveLength(1);
+      expect(subscriberBodies()[0]).not.toContain(password);
+    });
+
+    it('should record a masked copy of a received NotifyReport', async () => {
+      const rpcMessage = [
+        2,
+        'report-1',
+        'NotifyReport',
+        {
+          requestId: 1,
+          generatedAt: '2026-10-13T00:00:00Z',
+          seqNo: 0,
+          reportData: [
+            {
+              component: { name: 'SecurityCtrlr' },
+              variable: { name: 'BasicAuthPassword' },
+              variableAttribute: [{ type: 'Actual', value: password }],
+            },
+          ],
+        },
+      ];
+
+      await webhookDispatcher.dispatchMessageReceived(
+        DEFAULT_TENANT_ID,
+        'station-1',
+        'Any timestamp',
+        'ocpp2.0.1',
+        'NotifyReport',
+        MessageState.Request,
+        rpcMessage,
+      );
+
+      const stored = createOCPPMessage.mock.calls[0][1];
+      expect(stored.message[3].reportData[0].variableAttribute[0].value).toBe(MASKED_SECRET);
+      expect(JSON.stringify(stored)).not.toContain(password);
+      expect(loggedLines().join('\n')).not.toContain(password);
+      expect(subscriberBodies()[0]).not.toContain(password);
+    });
+
+    it('should mask a raw frame that failed processing', async () => {
+      await webhookDispatcher.dispatchMessageReceivedUnparsed(
+        DEFAULT_TENANT_ID,
+        'station-1',
+        JSON.stringify(setVariablesPasswordCall()),
+        'Any timestamp',
+        'ocpp2.0.1',
+        'SetVariables',
+        MessageState.Request,
+      );
+
+      const stored = createOCPPMessage.mock.calls[0][1];
+      expect(stored.message).toContain(MASKED_SECRET);
+      expect(stored.message).not.toContain(password);
+      expect(loggedLines().join('\n')).not.toContain(password);
+      expect(subscriberBodies()[0]).not.toContain(password);
+    });
+  });
+
   describe('scheduled job', () => {
     it('should periodically pick up new subscriptions for registered stations', async () => {
       const subscription = aSubscription({
@@ -847,6 +974,64 @@ describe('WebhookDispatcher', () => {
       expect(fetch).toHaveBeenCalledTimes(1);
       expect(fetch).toHaveBeenCalledWith(subscription.url, expect.anything());
       expect(fetch).not.toHaveBeenCalledWith(anotherSubscription.url, expect.anything());
+    });
+  });
+
+  describe('OIDC authentication', () => {
+    function dispatcherWithToken(getToken: () => Promise<string>): WebhookDispatcher {
+      return new WebhookDispatcher(ocppMessageRepository, subscriptionRepository, undefined, {
+        getToken,
+      } as unknown as OidcTokenProvider);
+    }
+
+    it('should send a bearer token when a token provider is configured', async () => {
+      const subscription = aSubscription({ onConnect: true });
+      givenSubscriptions(subscription);
+      const dispatcher = dispatcherWithToken(() => Promise.resolve('service-token'));
+
+      await dispatcher.register(subscription.tenantId, subscription.stationId);
+
+      expect(fetch).toHaveBeenCalledWith(subscription.url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer service-token',
+        },
+        body: JSON.stringify({
+          stationId: subscription.stationId,
+          event: 'connected',
+        }),
+      });
+    });
+
+    it('should not send an authorization header without token provider', async () => {
+      const subscription = aSubscription({ onConnect: true });
+      givenSubscriptions(subscription);
+
+      await webhookDispatcher.register(subscription.tenantId, subscription.stationId);
+
+      expect(fetch).toHaveBeenCalledWith(subscription.url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: expect.any(String),
+      });
+    });
+
+    it('should not send the request when the token cannot be obtained', async () => {
+      const subscription = aSubscription({ onConnect: true });
+      const dispatcher = dispatcherWithToken(() => Promise.reject(new Error('keycloak down')));
+
+      const sent = await (
+        dispatcher as unknown as {
+          _subscriptionCallback: (body: object, url: string) => Promise<boolean>;
+        }
+      )._subscriptionCallback(
+        { stationId: subscription.stationId, event: 'connected' },
+        subscription.url,
+      );
+
+      expect(sent).toBe(false);
+      expect(fetch).not.toHaveBeenCalled();
     });
   });
 

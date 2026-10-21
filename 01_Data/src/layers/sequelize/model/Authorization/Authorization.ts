@@ -93,6 +93,9 @@ export class Authorization extends Model implements AuthorizationDto {
   @Column(DataType.STRING)
   declare ocpiAuthReference?: string | null;
 
+  @Column(DataType.BOOLEAN)
+  declare disableOCPI?: boolean | null;
+
   @HasMany(() => AuthorizationTenant, { foreignKey: 'authorizationId', as: 'tenants' })
   declare tenants?: AuthorizationTenant[] | null;
 

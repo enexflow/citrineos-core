@@ -22,8 +22,10 @@ import {
   EventGroup,
   MessageOrigin,
   MessageState,
+  MASKED_SECRET,
   MessageTypeId,
   NO_ACTION,
+  OCPP1_6_CallAction,
   OCPP2_0_1,
   OCPP2_0_1_CallAction,
   OcppError,
@@ -31,7 +33,11 @@ import {
   RequestBuilder,
   RetryMessageError,
 } from '@citrineos/base';
-import type { ILocationRepository } from '@citrineos/data';
+import type {
+  ILocationRepository,
+  IOCPPMessageRepository,
+  ISubscriptionRepository,
+} from '@citrineos/data';
 import { afterEach, beforeEach, describe, expect, it, type Mocked, vi } from 'vitest';
 import { MessageRouterImpl } from '../../src/module/router.js';
 import { WebhookDispatcher } from '../../src/module/webhook.dispatcher.js';
@@ -1465,6 +1471,89 @@ describe('MessageRouterImpl', () => {
       const result = await router.onMessage(IDENTIFIER, callErrorMessage, timestamp, PROTOCOL);
 
       expect(result).toBe(true);
+    });
+  });
+
+  // ─── Credential masking (TECH-2381) ────────────────────────────────────────
+
+  describe('credential masking with a real WebhookDispatcher', () => {
+    const password = 'S3cret-Station-Password!';
+    let createOCPPMessage: ReturnType<typeof vi.fn>;
+    let routerWithDispatcher: MessageRouterImpl;
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      createOCPPMessage = vi.fn().mockResolvedValue({});
+      const realDispatcher = new WebhookDispatcher(
+        { createOCPPMessage } as unknown as IOCPPMessageRepository,
+        { readAllByStationId: vi.fn().mockResolvedValue([]) } as unknown as ISubscriptionRepository,
+      );
+      routerWithDispatcher = new MessageRouterImpl(
+        config,
+        cache,
+        sender,
+        handler,
+        realDispatcher,
+        networkHook,
+        undefined,
+        undefined,
+        locationRepository,
+      );
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('should send the clear password to the station and record it masked', async () => {
+      const payload = {
+        setVariableData: [
+          {
+            component: { name: 'SecurityCtrlr' },
+            variable: { name: 'BasicAuthPassword' },
+            attributeType: 'Actual',
+            attributeValue: password,
+          },
+        ],
+      } as unknown as OcppRequest;
+
+      const result = await routerWithDispatcher.sendCall(
+        STATION_ID,
+        TENANT_ID,
+        PROTOCOL,
+        OCPP2_0_1_CallAction.SetVariables,
+        payload,
+        CORRELATION_ID,
+      );
+
+      expect(result.success).toBe(true);
+      expect(networkHook).toHaveBeenCalledWith(
+        IDENTIFIER,
+        JSON.stringify([MessageTypeId.Call, CORRELATION_ID, 'SetVariables', payload]),
+      );
+      expect(createOCPPMessage).toHaveBeenCalledTimes(1);
+      const stored = createOCPPMessage.mock.calls[0][1];
+      expect(stored.message[3].setVariableData[0].attributeValue).toBe(MASKED_SECRET);
+      expect(JSON.stringify(stored)).not.toContain(password);
+    });
+
+    it('should send an OCPP 1.6 AuthorizationKey in clear and record it masked', async () => {
+      const payload = { key: 'AuthorizationKey', value: password } as unknown as OcppRequest;
+
+      await routerWithDispatcher.sendCall(
+        STATION_ID,
+        TENANT_ID,
+        OCPPVersion.OCPP1_6,
+        OCPP1_6_CallAction.ChangeConfiguration,
+        payload,
+        CORRELATION_ID,
+      );
+
+      expect(networkHook.mock.calls[0][1]).toContain(password);
+      expect(createOCPPMessage.mock.calls[0][1].message[3]).toEqual({
+        key: 'AuthorizationKey',
+        value: MASKED_SECRET,
+      });
     });
   });
 });

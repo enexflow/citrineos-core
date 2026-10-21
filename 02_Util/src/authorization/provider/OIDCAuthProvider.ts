@@ -14,12 +14,18 @@ import { ApiAuthenticationResult, ApiAuthorizationResult } from '@citrineos/base
 import { createPublicKey } from 'crypto';
 import { RbacRulesLoader } from '../rbac/RbacRulesLoader.js';
 
+const OIDC_DISCOVERY_TIMEOUT_MS = 5000;
+const MAX_LOGGED_ISSUER_LENGTH = 200;
+
 export interface OIDCConfig {
   // JWKS URI for the public keys
   jwksUri: string;
 
-  // Expected issuer of tokens
+  // Issuer base URL as reached from this server; its discovery document gives the expected `iss`
   issuer: string;
+
+  // Exact `iss` to require instead of the discovered one (skips discovery)
+  expectedIssuer?: string;
 
   // Expected audience of tokens (usually the client ID)
   audience?: string;
@@ -31,6 +37,14 @@ export interface OIDCConfig {
   rateLimit?: boolean;
 }
 
+// The unverified iss is attacker-chosen: escape it (no forged log lines) and bound its length.
+function formatIssuerForLog(issuer: unknown): string {
+  if (issuer === undefined) {
+    return 'none';
+  }
+  return (JSON.stringify(issuer) ?? String(issuer)).slice(0, MAX_LOGGED_ISSUER_LENGTH);
+}
+
 /**
  * OIDC authentication provider implementation
  */
@@ -40,6 +54,7 @@ export class OIDCAuthProvider implements IApiAuthProvider {
   private readonly _jkwsClient: JwksRsa.JwksClient;
   private readonly _rulesLoader: RbacRulesLoader;
   private readonly _defaultTenantId: string = '1'; //TODO get default from config
+  private _expectedIssuer?: Promise<string>;
 
   /**
    * Creates a new Keycloak authentication provider
@@ -71,6 +86,11 @@ export class OIDCAuthProvider implements IApiAuthProvider {
     this._rulesLoader = new RbacRulesLoader('rbac-rules.json', this._logger);
 
     this._logger.info(`OIDC auth provider setup with jwksUri: ${this._config.jwksUri}`);
+
+    // Eager resolution warms the issuer cache and puts the expected value in the boot logs.
+    this.getExpectedIssuer().catch((error) =>
+      this._logger.error('OIDC issuer resolution failed, retrying on next request:', error),
+    );
   }
 
   async extractToken(request: FastifyRequest): Promise<string | null> {
@@ -83,7 +103,8 @@ export class OIDCAuthProvider implements IApiAuthProvider {
 
     // Return the token without the "Bearer " prefix
     const token = authHeader.slice(7).trim();
-    this._logger.debug('Extracted token from request:', token);
+    // Never log the token itself: it is a replayable credential.
+    this._logger.debug('Extracted bearer token from request');
     return token;
   }
 
@@ -94,15 +115,18 @@ export class OIDCAuthProvider implements IApiAuthProvider {
    * @returns Authentication result with user info if successful
    */
   async authenticateToken(token: string): Promise<ApiAuthenticationResult> {
+    let unverifiedIssuer: unknown;
     try {
       const decoded = jwt.decode(token, { complete: true });
 
       if (!decoded || typeof decoded !== 'object' || !decoded.header || !decoded.header.kid) {
         throw new Error('Invalid token format');
       }
+      unverifiedIssuer = typeof decoded.payload === 'object' ? decoded.payload.iss : undefined;
       const publicKey = await this.fetchPublicKey(decoded.header.kid);
-      // Verify the token with the public key
-      const payload = jwt.verify(token, createPublicKey(publicKey)) as JwtPayload;
+      // A valid signature alone does not prove the token was issued for this realm: require the iss too.
+      const issuer = await this.getExpectedIssuer();
+      const payload = jwt.verify(token, createPublicKey(publicKey), { issuer }) as JwtPayload;
 
       // Extract user info from the decoded token
       const user: UserInfo = {
@@ -121,7 +145,10 @@ export class OIDCAuthProvider implements IApiAuthProvider {
       };
       return ApiAuthenticationResult.success(user);
     } catch (error) {
-      this._logger.error('Token authentication failed:', error);
+      this._logger.error(
+        `Token authentication failed (iss=${formatIssuerForLog(unverifiedIssuer)}):`,
+        error,
+      );
       return ApiAuthenticationResult.failure(
         error instanceof Error ? error.message : 'Invalid token',
       );
@@ -165,6 +192,42 @@ export class OIDCAuthProvider implements IApiAuthProvider {
         `Authorization error: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
+  }
+
+  private getExpectedIssuer(): Promise<string> {
+    if (!this._expectedIssuer) {
+      this._expectedIssuer = this.resolveExpectedIssuer().catch((error: unknown) => {
+        // Do not cache a transient Keycloak outage: the next request retries.
+        this._expectedIssuer = undefined;
+        throw error;
+      });
+    }
+    return this._expectedIssuer;
+  }
+
+  private async resolveExpectedIssuer(): Promise<string> {
+    if (this._config.expectedIssuer) {
+      this._logger.info(`OIDC expected token issuer (configured): ${this._config.expectedIssuer}`);
+      return this._config.expectedIssuer;
+    }
+    // The configured issuer may be an internal URL; Keycloak advertises the iss it actually signs.
+    let issuerBase = this._config.issuer;
+    while (issuerBase.endsWith('/')) {
+      issuerBase = issuerBase.slice(0, -1);
+    }
+    const discoveryUrl = `${issuerBase}/.well-known/openid-configuration`;
+    const response = await fetch(discoveryUrl, {
+      signal: AbortSignal.timeout(OIDC_DISCOVERY_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      throw new Error(`OIDC discovery returned HTTP ${response.status} at ${discoveryUrl}`);
+    }
+    const document = (await response.json()) as { issuer?: unknown };
+    if (typeof document.issuer !== 'string' || document.issuer.length === 0) {
+      throw new Error(`OIDC discovery document at ${discoveryUrl} has no issuer`);
+    }
+    this._logger.info(`OIDC expected token issuer (discovered): ${document.issuer}`);
+    return document.issuer;
   }
 
   /**

@@ -6,8 +6,11 @@ import {
   createIdentifier,
   getStationIdFromIdentifier,
   getTenantIdFromIdentifier,
+  maskOcppMessageSecrets,
+  maskRawOcppMessageSecrets,
   MessageOrigin,
   MessageState,
+  OidcTokenProvider,
 } from '@citrineos/base';
 import type { IOCPPMessageRepository, ISubscriptionRepository } from '@citrineos/data';
 import { Subscription } from '@citrineos/data';
@@ -21,6 +24,7 @@ export class WebhookDispatcher {
   protected _logger: Logger<ILogObj>;
   protected _ocppMessageRepository: IOCPPMessageRepository;
   protected _subscriptionRepository: ISubscriptionRepository;
+  protected _oidcTokenProvider?: OidcTokenProvider;
 
   protected _identifiers: Set<string> = new Set();
 
@@ -34,9 +38,11 @@ export class WebhookDispatcher {
     ocppMessageRepository: IOCPPMessageRepository,
     subscriptionRepository: ISubscriptionRepository,
     logger?: Logger<ILogObj>,
+    oidcTokenProvider?: OidcTokenProvider,
   ) {
     this._ocppMessageRepository = ocppMessageRepository;
     this._subscriptionRepository = subscriptionRepository;
+    this._oidcTokenProvider = oidcTokenProvider;
     this._logger = logger
       ? logger.getSubLogger({ name: this.constructor.name })
       : new Logger<ILogObj>({ name: this.constructor.name });
@@ -86,6 +92,8 @@ export class WebhookDispatcher {
   ) {
     const identifier = createIdentifier(tenantId, stationId);
     try {
+      // The frame may be valid JSON that only failed later in processing.
+      const maskedMessage = maskRawOcppMessageSecrets(message);
       // UUID generated so that unparsed messages don't end up referencing each other
       const messageId = uuidv4();
 
@@ -106,13 +114,15 @@ export class WebhookDispatcher {
         state: state,
         protocol: protocol as OCPPVersion,
         action: action,
-        message: message,
+        message: maskedMessage,
         timestamp: timestamp,
       };
       this._logOcppMessage(ocppMessage);
       const messagePromise = this._ocppMessageRepository.createOCPPMessage(tenantId, ocppMessage);
       const promises: Promise<any>[] =
-        this._onMessageCallbacks.get(identifier)?.map((callback) => callback(message, info)) ?? [];
+        this._onMessageCallbacks
+          .get(identifier)
+          ?.map((callback) => callback(maskedMessage, info)) ?? [];
       promises.push(messagePromise);
       await Promise.all(promises);
     } catch (error) {
@@ -132,6 +142,8 @@ export class WebhookDispatcher {
     const identifier = createIdentifier(tenantId, stationId);
     const messageId = rpcMessage[1];
     const origin = MessageOrigin.ChargingStation;
+    // Credentials reach neither OCPPMessages, nor the log mirror, nor the subscribers.
+    const maskedMessage = maskOcppMessageSecrets(rpcMessage);
 
     const ocppMessage: OCPPMessageDto = {
       tenantId: tenantId,
@@ -141,7 +153,7 @@ export class WebhookDispatcher {
       state: state,
       action: action,
       protocol: protocol as OCPPVersion,
-      message: rpcMessage,
+      message: maskedMessage,
       timestamp: timestamp,
     };
     this._logOcppMessage(ocppMessage);
@@ -165,7 +177,7 @@ export class WebhookDispatcher {
         ['protocol', protocol],
         ['action', action ? action : 'undefined'],
       ]);
-      const rawMessage = JSON.stringify(rpcMessage);
+      const rawMessage = JSON.stringify(maskedMessage);
       const promises: Promise<any>[] =
         this._onMessageCallbacks.get(identifier)?.map((callback) =>
           callback(rawMessage, info).catch((reason) => {
@@ -195,6 +207,8 @@ export class WebhookDispatcher {
 
     const messageId = rpcMessage[1];
     const origin = MessageOrigin.ChargingStationManagementSystem;
+    // The frame has already left for the station: only the recorded copy is masked.
+    const maskedMessage = maskOcppMessageSecrets(rpcMessage);
 
     const ocppMessage: OCPPMessageDto = {
       tenantId: tenantId,
@@ -204,7 +218,7 @@ export class WebhookDispatcher {
       state: state,
       action: action,
       protocol: protocol as OCPPVersion,
-      message: rpcMessage,
+      message: maskedMessage,
       timestamp: timestamp,
     };
     this._logOcppMessage(ocppMessage);
@@ -221,7 +235,7 @@ export class WebhookDispatcher {
         ['protocol', protocol],
         ['action', action ? action : 'undefined'],
       ]);
-      const rawMessage = JSON.stringify(rpcMessage);
+      const rawMessage = JSON.stringify(maskedMessage);
       const promises: Promise<any>[] =
         this._sentMessageCallbacks.get(identifier)?.map((callback) =>
           callback(rawMessage, info).catch((reason) => {
@@ -395,12 +409,25 @@ export class WebhookDispatcher {
     },
     url: string,
   ): Promise<boolean> {
+    const headers: { [key: string]: string } = {
+      'Content-Type': 'application/json',
+    };
+    // Same contract as message API callbacks: never send unauthenticated when OIDC is configured.
+    if (this._oidcTokenProvider) {
+      try {
+        headers['Authorization'] = `Bearer ${await this._oidcTokenProvider.getToken()}`;
+      } catch (error) {
+        this._logger.error(
+          `Failed to get OIDC token for subscription ${url} on charging station ${requestBody.stationId}.
+           Event: ${requestBody.event}, ${error}`,
+        );
+        return false;
+      }
+    }
     try {
       const response = await fetch(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify(requestBody),
       });
 
