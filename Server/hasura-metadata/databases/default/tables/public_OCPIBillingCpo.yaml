@@ -5,6 +5,29 @@ table:
   name: OCPIBillingCpo
   schema: public
 select_permissions:
+  - role: roaming_reader
+    permission:
+      columns:
+        - id
+        - tenantId
+        - session_start
+        - energy_charged_kwh
+        - total_cost_eur_excl_vat
+        - location
+        - billed_to_tenant_partner_id
+        - billed_to_roaming_partner_id
+        - ocpi_cdr_id
+        - successfully_sent_at
+        - station_id
+        - transaction_id
+        - tenant_partner_country_code
+        - tenant_partner_party_id
+        - tenant_partner_name
+        - roaming_partner_country_code
+        - roaming_partner_party_id
+        - roaming_partner_name
+      filter: {}
+    comment: Read-only role for the Patterm timeseries_api monthly eMSP invoice (TECH-2283); no badge_id, the token uid is not needed to bill.
   - role: user
     permission:
       columns:
