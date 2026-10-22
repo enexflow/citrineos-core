@@ -8,7 +8,7 @@ import {
   type IMessageContext,
   type SystemConfig,
 } from '@citrineos/base';
-import type { ILocationRepository } from '@citrineos/data';
+import type { ILocationRepository, ITenantPartnerRepository } from '@citrineos/data';
 import type { ILogObj } from 'tslog';
 import { Logger } from 'tslog';
 import { OidcTokenProvider } from '../authorization/index.js';
@@ -25,16 +25,19 @@ const REAL_TIME_AUTH_REQUEST_TIMEOUT_MS = 15_000;
  */
 export class UnknownTokenOcpiAuthorizer {
   private readonly _locationRepository: ILocationRepository;
+  private readonly _tenantPartnerRepository: ITenantPartnerRepository;
   private readonly _config: SystemConfig;
   private readonly _logger: Logger<ILogObj>;
   private readonly _oidcTokenProvider?: OidcTokenProvider;
 
   constructor(
     locationRepository: ILocationRepository,
+    tenantPartnerRepository: ITenantPartnerRepository,
     config: SystemConfig,
     logger?: Logger<ILogObj>,
   ) {
     this._locationRepository = locationRepository;
+    this._tenantPartnerRepository = tenantPartnerRepository;
     this._config = config;
     this._logger = logger
       ? logger.getSubLogger({ name: this.constructor.name })
@@ -49,6 +52,13 @@ export class UnknownTokenOcpiAuthorizer {
     idTokenType: IdTokenEnumType,
     context: IMessageContext,
   ): Promise<AuthorizationStatusEnumType> {
+    if (!(await this._tenantPartnerRepository.hasRealTimeTokenAuthPartner(context.tenantId))) {
+      this._logger.debug(
+        `No real-time token auth partner for tenant ${context.tenantId}, skipping partner authorization`,
+      );
+      return AuthorizationStatusEnum.Unknown;
+    }
+
     const chargingStation = await this._locationRepository.readChargingStationByStationId(
       context.tenantId,
       context.stationId,

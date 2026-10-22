@@ -17,4 +17,8 @@ export class SequelizeTenantPartnerRepository
   constructor(config: BootstrapConfig, logger?: Logger<ILogObj>, sequelizeInstance?: Sequelize) {
     super(config, TenantPartner.MODEL_NAME, logger, sequelizeInstance);
   }
+
+  async hasRealTimeTokenAuthPartner(tenantId: number): Promise<boolean> {
+    return (await this.existByQuery(tenantId, { where: { realTimeTokenAuth: true } })) > 0;
+  }
 }

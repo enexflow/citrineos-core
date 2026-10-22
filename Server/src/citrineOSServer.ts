@@ -738,6 +738,7 @@ export class CitrineOSServer {
   protected initUnknownTokenOcpiAuthorizer() {
     this._unknownTokenOcpiAuthorizer = new UnknownTokenOcpiAuthorizer(
       this._repositoryStore.locationRepository,
+      this._repositoryStore.tenantPartnerRepository,
       this._config,
       this._logger,
     );

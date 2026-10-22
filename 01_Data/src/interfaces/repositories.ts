@@ -520,4 +520,6 @@ export interface ITenantRepository extends CrudRepository<Tenant> {
   createTenant(tenant: Tenant): Promise<Tenant>;
 }
 
-export interface ITenantPartnerRepository extends CrudRepository<TenantPartner> {}
+export interface ITenantPartnerRepository extends CrudRepository<TenantPartner> {
+  hasRealTimeTokenAuthPartner(tenantId: number): Promise<boolean>;
+}

@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { IMessageContext, SystemConfig } from '@citrineos/base';
 import { AuthorizationStatusEnum, IdTokenEnum } from '@citrineos/base';
-import type { ILocationRepository } from '@citrineos/data';
+import type { ILocationRepository, ITenantPartnerRepository } from '@citrineos/data';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { UnknownTokenOcpiAuthorizer } from '../../src/authorizer/UnknownTokenOcpiAuthorizer.js';
 
@@ -23,6 +23,7 @@ describe('UnknownTokenOcpiAuthorizer', () => {
     readChargingStationByStationId: ReturnType<typeof vi.fn>;
     readByKey: ReturnType<typeof vi.fn>;
   };
+  let tenantPartnerRepository: { hasRealTimeTokenAuthPartner: ReturnType<typeof vi.fn> };
   let fetchMock: ReturnType<typeof vi.fn>;
   let authorizer: UnknownTokenOcpiAuthorizer;
 
@@ -31,16 +32,29 @@ describe('UnknownTokenOcpiAuthorizer', () => {
       readChargingStationByStationId: vi.fn().mockResolvedValue({ id: 'cp001', locationId: 42 }),
       readByKey: vi.fn().mockResolvedValue({ id: 42, disableOCPI: false }),
     };
+    tenantPartnerRepository = { hasRealTimeTokenAuthPartner: vi.fn().mockResolvedValue(true) };
     fetchMock = vi.fn().mockResolvedValue(okResponse('ALLOWED'));
     vi.stubGlobal('fetch', fetchMock);
     authorizer = new UnknownTokenOcpiAuthorizer(
       locationRepository as unknown as ILocationRepository,
+      tenantPartnerRepository as unknown as ITenantPartnerRepository,
       config,
     );
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it('skips the OCPI module when the tenant has no real-time partner', async () => {
+    tenantPartnerRepository.hasRealTimeTokenAuthPartner.mockResolvedValue(false);
+
+    const status = await authorizer.authorize('TOKEN1', IdTokenEnum.ISO14443, context);
+
+    expect(status).toBe(AuthorizationStatusEnum.Unknown);
+    expect(tenantPartnerRepository.hasRealTimeTokenAuthPartner).toHaveBeenCalledWith(1);
+    expect(locationRepository.readChargingStationByStationId).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('skips partners when OCPI is disabled on the station location', async () => {
