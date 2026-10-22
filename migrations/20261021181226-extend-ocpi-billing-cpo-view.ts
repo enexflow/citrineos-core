@@ -10,9 +10,6 @@ import type { QueryInterface } from 'sequelize';
  *  - ocpi_cdr_id, successfully_sent_at
  *  - station_id + transaction_id: OCPP transaction ids are only unique per station
  *  - country code, party id and name of the billed TenantPartner and RoamingPartner
- *
- * Columns are appended: CREATE OR REPLACE VIEW cannot rename or reorder existing ones.
- * Needs TenantPartners.name (20261015144813-add-hdv-info).
  */
 export default {
   async up(queryInterface: QueryInterface): Promise<void> {
