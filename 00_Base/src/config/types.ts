@@ -290,6 +290,8 @@ export const systemConfigInputSchema = z.object({
           }
         }),
     }),
+    // Enables PUT systemConfig; off by default since a runtime swap can redirect credentialed endpoints.
+    allowSystemConfigUpdate: z.boolean().default(false).optional(),
   }),
   logLevel: z.number().min(0).max(6).default(0).optional(),
   maxCallLengthSeconds: z.number().int().min(1).default(20).optional(),
@@ -606,6 +608,8 @@ export const systemConfigSchema = z
             }
           }),
       }),
+      // Enables PUT systemConfig; off by default since a runtime swap can redirect credentialed endpoints.
+      allowSystemConfigUpdate: z.boolean().default(false).optional(),
     }),
     logLevel: z.number().min(0).max(6),
     maxCallLengthSeconds: z.number().int().min(1),
