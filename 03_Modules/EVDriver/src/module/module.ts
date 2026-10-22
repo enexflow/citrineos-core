@@ -931,9 +931,11 @@ export class EVDriverModule extends AbstractModule {
     );
     switch (status) {
       case AuthorizationStatusEnum.Accepted:
+        return OCPP1_6.AuthorizeResponseStatus.Accepted;
       case AuthorizationStatusEnum.Blocked:
+        return OCPP1_6.AuthorizeResponseStatus.Blocked;
       case AuthorizationStatusEnum.Expired:
-        return OCPP1_6_Mapper.AuthorizationMapper.toIdTagInfoStatus(status);
+        return OCPP1_6.AuthorizeResponseStatus.Expired;
       default:
         return OCPP1_6.AuthorizeResponseStatus.Invalid;
     }
