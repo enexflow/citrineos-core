@@ -25,6 +25,7 @@ export const TenantPartnerSchema = BaseSchema.extend({
   name: z.string().nullable().optional(),
   isHdv: z.boolean().optional(),
   awsSecretCertificateArn: z.string().nullable().optional(),
+  realTimeTokenAuth: z.boolean().optional(),
   roamingPartners: z.array(RoamingPartnerSchema).nullable().optional(),
 });
 
