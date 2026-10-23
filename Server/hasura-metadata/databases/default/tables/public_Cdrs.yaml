@@ -61,6 +61,24 @@ select_permissions:
       filter: {}
       allow_aggregations: true
     comment: Read-only role for the OCPI monitor UI
+  - role: roaming_reader
+    permission:
+      columns:
+        - id
+        - sessionId
+        - countryCode
+        - partyId
+        - startDateTime
+        - endDateTime
+        - cdrToken
+        - cdrLocation
+        - totalEnergy
+        - totalCost
+        - currency
+      filter:
+        fromTenantPartnerId:
+          _is_null: false
+    comment: Read-only role for the Patterm timeseries_api roaming proxy; SELECT only, cross-tenant, limited to CDRs received from partners (the charges of our badges on their networks).
   - role: user
     permission:
       columns:
