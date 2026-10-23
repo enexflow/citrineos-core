@@ -96,6 +96,7 @@ export type { BootstrapConfig } from './config/bootstrap.config.js';
 export { ConfigStoreFactory } from './config/ConfigStore.js';
 export type { ConfigStore } from './config/ConfigStore.js';
 export { DEFAULT_TENANT_ID, defineConfig } from './config/defineConfig.js';
+export { redactConfig } from './config/redactConfig.js';
 export { SignedMeterValuesConfig } from './config/signedMeterValuesConfig.js';
 export {
   HUBJECT_DEFAULT_AUTH_TOKEN,
