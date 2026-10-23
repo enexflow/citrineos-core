@@ -15,6 +15,7 @@ import {
   Namespace,
   OCPP1_6_Namespace,
   OCPPVersion,
+  redactConfig,
   systemConfigSchema,
 } from '../../index.js';
 import { OCPP2_0_1_Namespace } from '../../ocpp/persistence/index.js';
@@ -385,9 +386,13 @@ export abstract class AbstractModuleApi<T extends IModule> implements IModuleApi
     this._addDataRoute.call(
       this,
       OCPP2_0_1_Namespace.SystemConfig,
-      () => new Promise((resolve) => resolve(module.config)),
+      () => new Promise((resolve) => resolve(redactConfig(module.config))),
       HttpMethod.Get,
     );
+
+    if (!module.config.util.allowSystemConfigUpdate) {
+      return;
+    }
 
     const systemConfigJsonSchema = z.toJSONSchema(systemConfigSchema, {
       target: 'openapi-3.0',
