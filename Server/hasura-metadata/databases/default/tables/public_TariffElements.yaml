@@ -18,6 +18,15 @@ select_permissions:
         - restrictions
       filter: {}
     comment: Read-only role for the Patterm timeseries_api roaming proxy (TECH-1807); SELECT only, cross-tenant (proxy filters by partner in-query).
+  - role: ocpi-monitor-user
+    permission:
+      columns:
+        - id
+        - tariffId
+        - priceComponents
+        - restrictions
+      filter: {}
+    comment: Read-only role for the OCPI monitor UI
   - role: user
     permission:
       columns:
