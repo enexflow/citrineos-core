@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { BootstrapConfig } from '@citrineos/base';
-import { Op } from 'sequelize';
 import { Sequelize } from 'sequelize-typescript';
 import type { ILogObj } from 'tslog';
 import { Logger } from 'tslog';
@@ -19,18 +18,7 @@ export class SequelizeTenantPartnerRepository
     super(config, TenantPartner.MODEL_NAME, logger, sequelizeInstance);
   }
 
-  async getHubPartner(
-    tenantId: number,
-    countryCode: string,
-    partyIds: string[],
-  ): Promise<TenantPartner | undefined> {
-    const partners = await this.readAllByQuery(tenantId, {
-      where: {
-        tenantId,
-        countryCode,
-        partyId: { [Op.in]: partyIds },
-      },
-    });
-    return partners[0];
+  async hasRealTimeTokenAuthPartner(tenantId: number): Promise<boolean> {
+    return (await this.existByQuery(tenantId, { where: { realTimeTokenAuth: true } })) > 0;
   }
 }

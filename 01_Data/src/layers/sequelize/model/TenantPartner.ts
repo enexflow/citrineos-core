@@ -40,6 +40,9 @@ export class TenantPartner extends Model implements TenantPartnerDto {
   @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false })
   declare isHdv: boolean;
 
+  @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false })
+  declare realTimeTokenAuth: boolean;
+
   @HasMany(() => Authorization)
   declare authorizations: Authorization[];
 
