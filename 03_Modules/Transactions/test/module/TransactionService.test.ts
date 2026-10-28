@@ -36,7 +36,7 @@ describe('TransactionService', () => {
 
   beforeEach(() => {
     authorizationRepository = {
-      readAllByQuerystring: vi.fn(),
+      readBestByQuerystring: vi.fn(),
       readOnlyOneByQuery: vi.fn().mockResolvedValue({ idToken: 1 }),
     } as unknown as Mocked<IAuthorizationRepository>;
 
@@ -73,7 +73,7 @@ describe('TransactionService', () => {
   });
 
   it('should return Unknown status when authorizations length is not 1', async () => {
-    authorizationRepository.readAllByQuerystring.mockResolvedValue([]);
+    authorizationRepository.readBestByQuerystring.mockResolvedValue(undefined);
 
     const transactionEventRequest = aTransactionEventRequest((item) => {
       item.idToken = anIdToken();
@@ -92,7 +92,7 @@ describe('TransactionService', () => {
     const authorization = anAuthorization((auth) => {
       auth.status = AuthorizationStatusEnum.Blocked;
     });
-    authorizationRepository.readAllByQuerystring.mockResolvedValue([authorization]);
+    authorizationRepository.readBestByQuerystring.mockResolvedValue(authorization);
 
     const transactionEventRequest = aTransactionEventRequest((item) => {
       item.idToken = {
@@ -117,7 +117,7 @@ describe('TransactionService', () => {
       auth.status = AuthorizationStatusEnum.Accepted;
       auth.cacheExpiryDateTime = expiredDate;
     });
-    authorizationRepository.readAllByQuerystring.mockResolvedValue([authorization]);
+    authorizationRepository.readBestByQuerystring.mockResolvedValue(authorization);
 
     const transactionEventRequest = aTransactionEventRequest((item) => {
       item.idToken = anIdToken();
@@ -137,7 +137,7 @@ describe('TransactionService', () => {
     const authorization = anAuthorization((auth) => {
       auth.status = AuthorizationStatusEnum.Accepted;
     });
-    authorizationRepository.readAllByQuerystring.mockResolvedValue([authorization]);
+    authorizationRepository.readBestByQuerystring.mockResolvedValue(authorization);
     transactionEventRepository.readAllActiveTransactionsByAuthorizationId.mockResolvedValue([
       aTransaction(),
       aTransaction(),
@@ -164,7 +164,7 @@ describe('TransactionService', () => {
       auth.concurrentTransaction = true;
       auth.status = AuthorizationStatusEnum.Accepted;
     });
-    authorizationRepository.readAllByQuerystring.mockResolvedValue([authorization]);
+    authorizationRepository.readBestByQuerystring.mockResolvedValue(authorization);
     transactionEventRepository.readAllActiveTransactionsByAuthorizationId.mockResolvedValue([
       aTransaction(),
       aTransaction(),
@@ -190,7 +190,7 @@ describe('TransactionService', () => {
     const authorization = anAuthorization((auth) => {
       auth.status = AuthorizationStatusEnum.Accepted;
     });
-    authorizationRepository.readAllByQuerystring.mockResolvedValue([authorization]);
+    authorizationRepository.readBestByQuerystring.mockResolvedValue(authorization);
     transactionEventRepository.readAllActiveTransactionsByAuthorizationId.mockResolvedValue([]);
     authorizer.authorize.mockResolvedValue(AuthorizationStatusEnum.Accepted);
     realTimeAuthorizer.authorize.mockResolvedValue(AuthorizationStatusEnum.Accepted);
@@ -213,7 +213,7 @@ describe('TransactionService', () => {
   describe('Tests for authorizeOcpp16IdToken', () => {
     it('should return Accepted status when idToken exists and idTokenInfo is valid', async () => {
       const authorization = anAuthorization();
-      authorizationRepository.readAllByQuerystring.mockResolvedValue([authorization]);
+      authorizationRepository.readBestByQuerystring.mockResolvedValue(authorization);
       transactionEventRepository.readAllActiveTransactionsByAuthorizationId.mockResolvedValue([]);
       authorizer.authorize.mockResolvedValue(AuthorizationStatusEnum.Accepted);
       realTimeAuthorizer.authorize.mockResolvedValue(AuthorizationStatusEnum.Accepted);
@@ -236,7 +236,7 @@ describe('TransactionService', () => {
       const authorization = anAuthorization((auth) => {
         auth.status = AuthorizationStatusEnum.Blocked;
       });
-      authorizationRepository.readAllByQuerystring.mockResolvedValue([authorization]);
+      authorizationRepository.readBestByQuerystring.mockResolvedValue(authorization);
 
       const messageContext = aMessageContext();
       const connectorId = 1;
@@ -255,7 +255,7 @@ describe('TransactionService', () => {
       const authorization = anAuthorization((auth) => {
         auth.cacheExpiryDateTime = faker.date.past().toISOString();
       });
-      authorizationRepository.readAllByQuerystring.mockResolvedValue([authorization]);
+      authorizationRepository.readBestByQuerystring.mockResolvedValue(authorization);
 
       const messageContext = aMessageContext();
       const connectorId = 1;
@@ -272,7 +272,7 @@ describe('TransactionService', () => {
 
     it('should return ConcurrentTx status when an active transaction exists', async () => {
       const authorization = anAuthorization();
-      authorizationRepository.readAllByQuerystring.mockResolvedValue([authorization]);
+      authorizationRepository.readBestByQuerystring.mockResolvedValue(authorization);
       transactionEventRepository.readAllActiveTransactionsByAuthorizationId.mockResolvedValue([
         aTransaction(),
       ]);

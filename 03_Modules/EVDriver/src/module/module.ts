@@ -339,7 +339,7 @@ export class EVDriverModule extends AbstractModule {
       }
     }
 
-    const auth = await this._authorizeRepository.readOnlyOneByQuerystring(context.tenantId, {
+    const auth = await this._authorizeRepository.readBestByQuerystring(context.tenantId, {
       idToken: request.idToken.idToken,
       type: OCPP2_0_1_Mapper.AuthorizationMapper.fromIdTokenEnumType(request.idToken.type),
     });
@@ -849,13 +849,14 @@ export class EVDriverModule extends AbstractModule {
       },
     };
     try {
-      const authorizations = await this._authorizeRepository.readAllByQuerystring(
+      // An idTag can match one row per tenant/roaming partner, the best one is picked.
+      const authorization = await this._authorizeRepository.readBestByQuerystring(
         context.tenantId,
         {
           idToken: request.idTag,
         },
       );
-      if (!authorizations || authorizations.length === 0) {
+      if (!authorization) {
         this._logger.error(`No authorization found for idToken: ${request.idTag}`);
         //below line is just to make it more explicit. Default status is already invalid.
         response.idTagInfo.status = OCPP1_6.AuthorizeResponseStatus.Invalid;
@@ -863,17 +864,6 @@ export class EVDriverModule extends AbstractModule {
         this._logger.debug('Authorize response sent:', response);
         return;
       }
-      // If we find more than one token for an idTag it's too opinionated on how to define which one is valid.
-      // For now, we error out, and implementers should change this according to their needs.
-      if (authorizations.length > 1) {
-        this._logger.error(`Too many authorizations found for idToken: ${request.idTag}`);
-        response.idTagInfo.status = OCPP1_6.AuthorizeResponseStatus.Invalid;
-        await this.sendCallResultWithMessage(message, response);
-        this._logger.debug('Authorize response sent:', response);
-        return;
-      }
-
-      const authorization = authorizations[0];
 
       if (!authorization.status) {
         response.idTagInfo.status = OCPP1_6.AuthorizeResponseStatus.Accepted;

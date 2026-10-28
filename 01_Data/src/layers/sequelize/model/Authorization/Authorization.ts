@@ -37,16 +37,12 @@ export class Authorization extends Model implements AuthorizationDto {
   @Column(DataType.ARRAY(DataType.STRING))
   declare disallowedEvseIdPrefixes?: string[];
 
-  @Column({
-    type: DataType.CITEXT,
-    unique: 'idToken_type',
-  })
+  // Uniqueness: (idToken, idTokenType, tenantPartnerId, roamingPartnerId) NULLS NOT DISTINCT,
+  // see migration 20261016173321-improve-authorisation-unique-key (not expressible in sequelize).
+  @Column(DataType.CITEXT)
   declare idToken: string;
 
-  @Column({
-    type: DataType.STRING,
-    unique: 'idToken_type',
-  })
+  @Column(DataType.STRING)
   declare idTokenType?: IdTokenEnumType | null;
 
   @Column(DataType.JSONB)

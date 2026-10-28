@@ -87,7 +87,7 @@ export class TransactionService {
     messageContext: IMessageContext,
   ): Promise<OCPP2_0_1.TransactionEventResponse> {
     const idToken = transactionEvent.idToken!;
-    const authorizations = await this._authorizeRepository.readAllByQuerystring(tenantId, {
+    const authorization = await this._authorizeRepository.readBestByQuerystring(tenantId, {
       idToken: idToken.idToken,
       type: OCPP2_0_1_Mapper.AuthorizationMapper.fromIdTokenEnumType(idToken.type),
     });
@@ -99,10 +99,9 @@ export class TransactionService {
       },
     };
 
-    if (authorizations.length !== 1) {
+    if (!authorization) {
       return response;
     }
-    const authorization = authorizations[0];
 
     // Extract DTO fields from sequelize Model<any, any> objects
     const idTokenInfo = OCPP2_0_1_Mapper.AuthorizationMapper.toIdTokenInfo(authorization);
@@ -203,16 +202,13 @@ export class TransactionService {
     try {
       // Find authorization
       const tenantId = context.tenantId;
-      const authorizations = await this._authorizeRepository.readAllByQuerystring(tenantId, {
+      const authorization = await this._authorizeRepository.readBestByQuerystring(tenantId, {
         idToken: idToken,
       });
-      if (authorizations.length !== 1) {
-        this._logger.error(
-          `Found invalid authorizations ${JSON.stringify(authorizations)} for idToken: ${idToken}`,
-        );
+      if (!authorization) {
+        this._logger.error(`No authorization found for idToken: ${idToken}`);
         return response;
       }
-      const authorization = authorizations[0];
 
       // Check expiration and status
       if (!authorization.status) {

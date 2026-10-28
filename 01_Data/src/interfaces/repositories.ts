@@ -75,6 +75,14 @@ export interface IAuthorizationRepository extends CrudRepository<Authorization> 
     tenantId: number,
     query: AuthorizationQuerystring,
   ) => Promise<Authorization | undefined>;
+  /**
+   * Same idToken can match several rows (one per tenant/roaming partner):
+   * returns the usable, most recently updated one.
+   */
+  readBestByQuerystring: (
+    tenantId: number,
+    query: AuthorizationQuerystring,
+  ) => Promise<Authorization | undefined>;
 }
 
 /**

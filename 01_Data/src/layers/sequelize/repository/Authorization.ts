@@ -14,6 +14,7 @@ import { Authorization } from '../model/index.js';
 import { AuthorizationTenant } from '../model/AuthorizationTenant.js';
 import { AuthorizationLocation } from '../model/AuthorizationLocation.js';
 import { SequelizeTenantJunctionRepository } from './BaseJunction.js';
+import { selectAuthorization } from '../../../util/selectAuthorization.js';
 
 export class SequelizeAuthorizationRepository
   extends SequelizeTenantJunctionRepository<Authorization>
@@ -43,6 +44,25 @@ export class SequelizeAuthorizationRepository
     query: AuthorizationQuerystring,
   ): Promise<Authorization | undefined> {
     return await super.readOnlyOneByQuery(tenantId, this._constructQuery(query, tenantId));
+  }
+
+  async readBestByQuerystring(
+    tenantId: number,
+    query: AuthorizationQuerystring,
+  ): Promise<Authorization | undefined> {
+    const authorizations = await this.readAllByQuerystring(tenantId, query);
+    if (authorizations.length > 1) {
+      this.logger.warn(
+        `idToken ${query.idToken} matches ${authorizations.length} authorizations: ` +
+          authorizations
+            .map(
+              (a) =>
+                `${a.id} (tenantPartner=${a.tenantPartnerId}, roamingPartner=${a.roamingPartnerId}, status=${a.status})`,
+            )
+            .join(', '),
+      );
+    }
+    return selectAuthorization(authorizations);
   }
 
   /**

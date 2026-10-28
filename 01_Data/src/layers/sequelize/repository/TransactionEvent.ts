@@ -38,6 +38,7 @@ import {
 import { SequelizeRepository } from './Base.js';
 import { SequelizeChargingStationSequenceRepository } from './ChargingStationSequence.js';
 import { selectApplicableTariff } from '../../../util/selectApplicableTariff.js';
+import { selectAuthorization } from '../../../util/selectAuthorization.js';
 
 export class SequelizeTransactionEventRepository
   extends SequelizeRepository<TransactionEvent>
@@ -203,25 +204,27 @@ export class SequelizeTransactionEventRepository
         }
         let authorizationId = existingTransaction.authorizationId;
         if (!authorizationId && value.idToken) {
-          // Find Authorization by IdToken
-          const authorization = await Authorization.findOne({
-            where: {
-              idToken: value.idToken.idToken,
-              idTokenType: OCPP2_0_1_Mapper.AuthorizationMapper.fromIdTokenEnumType(
-                value.idToken.type,
-              ),
-            },
-            transaction: sequelizeTransaction,
-            include: [
-              {
-                model: AuthorizationTenant,
-                as: 'tenants',
-                required: true,
-                where: { tenantId },
-                attributes: [],
+          // Find Authorization by IdToken (may match one row per tenant/roaming partner)
+          const authorization = selectAuthorization(
+            await Authorization.findAll({
+              where: {
+                idToken: value.idToken.idToken,
+                idTokenType: OCPP2_0_1_Mapper.AuthorizationMapper.fromIdTokenEnumType(
+                  value.idToken.type,
+                ),
               },
-            ],
-          });
+              transaction: sequelizeTransaction,
+              include: [
+                {
+                  model: AuthorizationTenant,
+                  as: 'tenants',
+                  required: true,
+                  where: { tenantId },
+                  attributes: [],
+                },
+              ],
+            }),
+          );
           if (authorization) {
             authorizationId = authorization.id;
           } else {
@@ -294,25 +297,27 @@ export class SequelizeTransactionEventRepository
         }
 
         if (value.idToken) {
-          // Find Authorization by IdToken
-          const authorization = await Authorization.findOne({
-            where: {
-              idToken: value.idToken.idToken,
-              idTokenType: OCPP2_0_1_Mapper.AuthorizationMapper.fromIdTokenEnumType(
-                value.idToken.type,
-              ),
-            },
-            transaction: sequelizeTransaction,
-            include: [
-              {
-                model: AuthorizationTenant,
-                as: 'tenants',
-                required: true,
-                where: { tenantId },
-                attributes: [],
+          // Find Authorization by IdToken (may match one row per tenant/roaming partner)
+          const authorization = selectAuthorization(
+            await Authorization.findAll({
+              where: {
+                idToken: value.idToken.idToken,
+                idTokenType: OCPP2_0_1_Mapper.AuthorizationMapper.fromIdTokenEnumType(
+                  value.idToken.type,
+                ),
               },
-            ],
-          });
+              transaction: sequelizeTransaction,
+              include: [
+                {
+                  model: AuthorizationTenant,
+                  as: 'tenants',
+                  required: true,
+                  where: { tenantId },
+                  attributes: [],
+                },
+              ],
+            }),
+          );
           if (authorization) {
             newTransaction.set('authorizationId', authorization.id);
           } else {
@@ -757,22 +762,24 @@ export class SequelizeTransactionEventRepository
       }
       event.connectorDatabaseId = connector.id;
 
-      // Find Authorization by IdToken
-      const authorization = await Authorization.findOne({
-        where: {
-          idToken: request.idTag,
-        },
-        transaction: sequelizeTransaction,
-        include: [
-          {
-            model: AuthorizationTenant,
-            as: 'tenants',
-            required: true,
-            where: { tenantId },
-            attributes: [],
+      // Find Authorization by IdToken (may match one row per tenant/roaming partner)
+      const authorization = selectAuthorization(
+        await Authorization.findAll({
+          where: {
+            idToken: request.idTag,
           },
-        ],
-      });
+          transaction: sequelizeTransaction,
+          include: [
+            {
+              model: AuthorizationTenant,
+              as: 'tenants',
+              required: true,
+              where: { tenantId },
+              attributes: [],
+            },
+          ],
+        }),
+      );
       if (!authorization) {
         this.logger.warn(`Authorization with idToken ${request.idTag} does not exist.`);
       }
