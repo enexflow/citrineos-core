@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Contributors to the CitrineOS Project
 //
 // SPDX-License-Identifier: Apache-2.0
-import type { BootstrapConfig, MeterValueDto } from '@citrineos/base';
+import type { BootstrapConfig, MeterValueDto, SampledValue } from '@citrineos/base';
 import {
   ChargingStationSequenceTypeEnum,
   CrudRepository,
@@ -863,9 +863,36 @@ export class SequelizeTransactionEventRepository
           { transaction: sequelizeTransaction },
         );
 
+        // transactionData repeats readings already received via MeterValues (StopTxnSampledData):
+        // only store sampled values that are not stored yet for this transaction.
+        const storedMeterValues = await MeterValue.findAll({
+          where: { tenantId, transactionDatabaseId },
+          attributes: ['timestamp', 'sampledValue'],
+          transaction: sequelizeTransaction,
+        });
+        const storedKeys = new Set(
+          storedMeterValues.flatMap((stored) =>
+            stored.sampledValue.map((sampledValue) =>
+              this.sampledValueKey(stored.timestamp, sampledValue),
+            ),
+          ),
+        );
+
         // Sequentially, not Promise.all: one pg transaction cannot interleave statements.
         const createdMeterValues: MeterValue[] = [];
         for (const meterValue of meterValues) {
+          const newSampledValues = meterValue.sampledValue.filter((sampledValue) => {
+            const key = this.sampledValueKey(meterValue.timestamp, sampledValue);
+            if (storedKeys.has(key)) {
+              return false;
+            }
+            storedKeys.add(key);
+            return true;
+          });
+          if (newSampledValues.length === 0) {
+            continue;
+          }
+          meterValue.sampledValue = newSampledValues as MeterValueDto['sampledValue'];
           meterValue.transactionDatabaseId = transactionDatabaseId;
           meterValue.transactionId = transaction.transactionId;
           meterValue.tariffId = transaction.tariffId;
@@ -906,6 +933,22 @@ export class SequelizeTransactionEventRepository
     }
 
     return stopTransaction;
+  }
+
+  /**
+   * Identity of one sampled value of a transaction, used to detect readings the station sends twice.
+   */
+  private sampledValueKey(timestamp: string, sampledValue: SampledValue): string {
+    return JSON.stringify([
+      new Date(timestamp).getTime(),
+      sampledValue.measurand ?? null,
+      sampledValue.phase ?? null,
+      sampledValue.location ?? null,
+      sampledValue.context ?? null,
+      Number(sampledValue.value),
+      sampledValue.unitOfMeasure?.unit ?? null,
+      sampledValue.unitOfMeasure?.multiplier ?? 0,
+    ]);
   }
 
   async updateTransactionByStationIdAndTransactionId(
