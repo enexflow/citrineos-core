@@ -73,7 +73,14 @@ select_permissions:
   - role: ocpi-monitor-user
     permission:
       columns:
+        - chargingState
         - endTime
+        - id
+        - startTime
+        - totalCost
+        - totalKwh
+        - transactionId
+        - updatedAt      
       filter: {}
       allow_aggregations: true
     comment: Read-only role for the OCPI monitor UI
