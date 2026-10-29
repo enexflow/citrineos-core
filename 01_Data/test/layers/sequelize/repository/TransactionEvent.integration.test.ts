@@ -7,10 +7,12 @@ import { SequelizeTransactionEventRepository } from '../../../../src/layers/sequ
 import {
   ChargingStation,
   MeterValue,
+  StartTransaction,
   Tenant,
   Transaction,
   TransactionEvent,
 } from '../../../../src/layers/sequelize/index.js';
+import { Op } from 'sequelize';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('SequelizeTransactionEventRepository - stale TransactionEvent handling', () => {
@@ -174,5 +176,128 @@ describe('SequelizeTransactionEventRepository - stale TransactionEvent handling'
     }
 
     expect(listener).not.toHaveBeenCalled();
+  });
+});
+
+describe('SequelizeTransactionEventRepository - OCPP 1.6 createStopTransaction', () => {
+  const db = setupTestDatabase();
+  let repo: SequelizeTransactionEventRepository;
+
+  const tenantId = 1;
+  const stationId = 'cp002';
+
+  const energyReading = (timestamp: string, energyWh: number) => ({
+    timestamp,
+    sampledValue: [
+      {
+        value: energyWh,
+        context: OCPP2_0_1.ReadingContextEnumType.Sample_Periodic,
+        measurand: OCPP2_0_1.MeasurandEnumType.Energy_Active_Import_Register,
+        location: OCPP2_0_1.LocationEnumType.Outlet,
+        unitOfMeasure: { unit: 'Wh', multiplier: 0 },
+      },
+    ],
+  });
+
+  beforeAll(() => {
+    repo = new SequelizeTransactionEventRepository(
+      {} as any,
+      undefined,
+      undefined,
+      db.sequelize,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {} as any, // chargingStationSequence: unused here, avoids DefaultSequelizeInstance
+    );
+  });
+
+  beforeEach(async () => {
+    await db.cleanup();
+    await Tenant.create({ id: tenantId, name: 'tenant-1', isUserTenant: false } as any);
+    await ChargingStation.create({ id: stationId, tenantId, isOnline: true } as any);
+  });
+
+  const startTransaction = async () => {
+    const transaction = await Transaction.create({
+      tenantId,
+      stationId,
+      transactionId: '8',
+      isActive: true,
+      meterStart: 27.776,
+    } as any);
+    await StartTransaction.create({
+      tenantId,
+      stationId,
+      meterStart: 27776,
+      timestamp: '2026-10-29T09:10:35.778Z',
+      transactionDatabaseId: transaction.id,
+    } as any);
+    // Readings already received through MeterValues during the session
+    for (const reading of [
+      energyReading('2026-10-29T09:10:45.346Z', 28026.64),
+      energyReading('2026-10-29T09:10:55.367Z', 28582.15),
+    ]) {
+      await MeterValue.create({
+        ...reading,
+        tenantId,
+        transactionDatabaseId: transaction.id,
+        transactionId: '8',
+      } as any);
+    }
+    return transaction;
+  };
+
+  it('closes the transaction in one write and does not store repeated transactionData readings', async () => {
+    const transaction = await startTransaction();
+
+    const repeatedWithNewMeasurand = energyReading('2026-10-29T09:10:55.367Z', 28582.15);
+    repeatedWithNewMeasurand.sampledValue.push({
+      value: 3300,
+      context: OCPP2_0_1.ReadingContextEnumType.Sample_Periodic,
+      measurand: OCPP2_0_1.MeasurandEnumType.Power_Active_Import,
+      location: OCPP2_0_1.LocationEnumType.Outlet,
+      unitOfMeasure: { unit: 'W', multiplier: 0 },
+    });
+
+    await repo.createStopTransaction(
+      tenantId,
+      transaction.id,
+      stationId,
+      28724,
+      new Date('2026-10-29T09:11:05.000Z'),
+      [
+        energyReading('2026-10-29T09:10:45.346Z', 28026.64), // exact repeat: skipped
+        repeatedWithNewMeasurand, // repeat + new Power value: only Power is stored
+        energyReading('2026-10-29T09:11:04.500Z', 28724), // new reading: stored
+      ] as any,
+      'EVDisconnected',
+    );
+
+    const closed = (await Transaction.findByPk(transaction.id))!;
+    expect(closed.isActive).toBe(false);
+    expect(Number(closed.totalKwh)).toBeCloseTo(0.948, 3);
+    expect(closed.stoppedReason).toBe('EVDisconnected');
+    expect(new Date(closed.endTime!).toISOString()).toBe('2026-10-29T09:11:05.000Z');
+
+    const stopReadings = await MeterValue.findAll({
+      where: {
+        transactionDatabaseId: transaction.id,
+        stopTransactionDatabaseId: { [Op.ne]: null },
+      },
+      order: [['timestamp', 'ASC']],
+    });
+    expect(stopReadings).toHaveLength(2);
+    expect(stopReadings[0].sampledValue.map((sv) => sv.measurand)).toEqual([
+      OCPP2_0_1.MeasurandEnumType.Power_Active_Import,
+    ]);
+    expect(stopReadings[1].sampledValue[0].value).toBe(28724);
+    expect(stopReadings.every((mv) => mv.transactionId === '8')).toBe(true);
+
+    expect(await MeterValue.count({ where: { transactionDatabaseId: transaction.id } })).toBe(4);
   });
 });

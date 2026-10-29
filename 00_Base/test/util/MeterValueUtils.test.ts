@@ -230,6 +230,27 @@ describe('MeterValueUtils', () => {
       ];
       expect(MeterValueUtils.getTotalKwh(meterValues, 0)).toBe(0);
     });
+
+    it('keeps the running total when the batch only has a Sample.Clock reading', () => {
+      // cp002 session 9: a clock-aligned reading at 09:59:59 reset the live total from 2.0 to 0
+      const meterValues = [
+        makeMeterValue(
+          '2026-10-29T09:59:59.657Z',
+          'Energy.Active.Import.Register',
+          48331.07,
+          'Wh',
+          'Sample.Clock',
+        ),
+      ];
+      expect(MeterValueUtils.getTotalKwh(meterValues, 2.00009, 46.081)).toBe(2.00009);
+    });
+
+    it('keeps the running total when the batch has no energy measurand', () => {
+      const meterValues = [
+        makeMeterValue('2026-10-29T10:00:05Z', 'Power.Active.Import', 3300, 'W', 'Sample.Periodic'),
+      ];
+      expect(MeterValueUtils.getTotalKwh(meterValues, 2.00009, 46.081)).toBe(2.00009);
+    });
   });
 
   describe('getMeterStart', () => {
