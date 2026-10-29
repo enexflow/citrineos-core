@@ -740,38 +740,61 @@ export class TransactionsModule extends AbstractModule {
       return;
     }
 
-    const stopTransaction = await this._transactionEventRepository.createStopTransaction(
-      tenantId,
-      transaction.id,
-      stationId,
-      request.meterStop,
-      new Date(request.timestamp),
-      request.transactionData?.map((data) =>
-        OCPP1_6_Mapper.MeterValueMapper.fromMeterValueType(
-          data as OCPP1_6.MeterValuesRequest['meterValue'][0],
-        ),
-      ) || [],
-      request.reason || (request.idTag ? 'Remote' : 'Local'),
-      authorization?.id,
-    );
+    // A retried StopTransaction (StopTransactions.transactionDatabaseId is unique) must not fail or re-close.
+    if (!transaction.isActive) {
+      this._logger.warn(
+        `Received StopTransaction for already-ended transaction ${request.transactionId} on ${stationId}. Ignoring.`,
+      );
+      return;
+    }
+
+    // OCPP 1.6 §4.10: an omitted Reason SHOULD be assumed 'Local'.
+    const stoppedReason = request.reason ?? OCPP1_6.StopTransactionRequestReason.Local;
+    const meterValues =
+      request.transactionData
+        ?.map((data) =>
+          OCPP1_6_Mapper.MeterValueMapper.fromMeterValueType(
+            data as OCPP1_6.MeterValuesRequest['meterValue'][0],
+          ),
+        )
+        .filter((meterValue) => meterValue.sampledValue.length > 0) || [];
+
+    // createStopTransaction closes the transaction atomically (isActive, endTime, totalKwh,
+    // stoppedReason), so OCPI builds the CDR from the final row.
+    let stopTransaction;
+    try {
+      stopTransaction = await this._transactionEventRepository.createStopTransaction(
+        tenantId,
+        transaction.id,
+        stationId,
+        request.meterStop,
+        new Date(request.timestamp),
+        meterValues,
+        stoppedReason,
+        authorization?.id,
+      );
+    } catch (error) {
+      // The response is already sent, so the station will not retry: never leave the transaction open.
+      this._logger.error(
+        `Failed to store StopTransaction for transaction ${request.transactionId}, retrying without meter values`,
+        error,
+      );
+      stopTransaction = await this._transactionEventRepository.createStopTransaction(
+        tenantId,
+        transaction.id,
+        stationId,
+        request.meterStop,
+        new Date(request.timestamp),
+        [],
+        stoppedReason,
+        authorization?.id,
+      );
+    }
 
     if (!stopTransaction) {
       this._logger.error(
         `Failed to create StopTransaction record for transaction ${request.transactionId}`,
       );
     }
-
-    if (transaction.startTransaction) {
-      transaction.totalKwh = (request.meterStop - transaction.startTransaction.meterStart) / 1000; // Convert from Wh to kWh
-    } else {
-      this._logger.warn(
-        `StartTransaction record not found at station ${stationId} for transactionId ${request.transactionId}. 
-        Cannot calculate totalKwh.`,
-      );
-    }
-    transaction.isActive = false;
-    transaction.stoppedReason = request.reason;
-    transaction.endTime = request.timestamp;
-    await transaction.save();
   }
 }

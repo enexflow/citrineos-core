@@ -793,7 +793,9 @@ export class SequelizeTransactionEventRepository
         isActive: true,
         transactionId: transactionId.toString(),
         authorizationId: authorization ? authorization.id : null,
-        meterStart: request.meterStart,
+        // 1.6 meterStart is in Wh; Transaction.meterStart is compared with kWh readings in getTotalKwh.
+        // StartTransaction.meterStart keeps the raw Wh value for the stop calculation.
+        meterStart: request.meterStart / 1000,
         startTime: request.timestamp,
       });
 
@@ -834,41 +836,73 @@ export class SequelizeTransactionEventRepository
     meterValues: MeterValueDto[],
     reason?: string,
   ): Promise<StopTransaction> {
-    const transaction = await this.transaction.readOnlyOneByQuery(tenantId, {
-      where: { id: transactionDatabaseId },
-      include: [StartTransaction],
-    });
+    // One DB transaction for the whole 1.6 stop: the TransactionNotification trigger is only
+    // delivered at COMMIT, so OCPI never sees isActive=false without the final totals.
+    const { stopTransaction, createdMeterValues } = await this.s.transaction(
+      async (sequelizeTransaction) => {
+        const transaction = await Transaction.findOne({
+          where: { tenantId, id: transactionDatabaseId },
+          include: [StartTransaction],
+          transaction: sequelizeTransaction,
+        });
 
-    if (!transaction) {
-      this.logger.error(`Transaction with id ${transactionDatabaseId} not found.`);
-      throw new Error(`Transaction with id ${transactionDatabaseId} not found.`);
-    }
+        if (!transaction) {
+          this.logger.error(`Transaction with id ${transactionDatabaseId} not found.`);
+          throw new Error(`Transaction with id ${transactionDatabaseId} not found.`);
+        }
 
-    const stopTransaction = await StopTransaction.create({
-      tenantId,
-      stationId,
-      transactionDatabaseId,
-      meterStop,
-      timestamp: timestamp.toISOString(),
-      reason,
-    });
-    this.stopTransaction.emit('created', [stopTransaction]);
+        const stopTransaction = await StopTransaction.create(
+          {
+            tenantId,
+            stationId,
+            transactionDatabaseId,
+            meterStop,
+            timestamp: timestamp.toISOString(),
+            reason,
+          },
+          { transaction: sequelizeTransaction },
+        );
 
-    await transaction.update({
-      endTime: timestamp,
-      isActive: false,
-    });
-
-    if (meterValues.length > 0) {
-      await Promise.all(
-        meterValues.map(async (meterValue) => {
+        // Sequentially, not Promise.all: one pg transaction cannot interleave statements.
+        const createdMeterValues: MeterValue[] = [];
+        for (const meterValue of meterValues) {
           meterValue.transactionDatabaseId = transactionDatabaseId;
+          meterValue.transactionId = transaction.transactionId;
+          meterValue.tariffId = transaction.tariffId;
           const createdMeterValue = MeterValue.build(meterValue);
           createdMeterValue.stopTransactionDatabaseId = stopTransaction.id;
-          await createdMeterValue.save();
-          this.meterValue.emit('created', [createdMeterValue]);
-        }),
-      );
+          await createdMeterValue.save({ transaction: sequelizeTransaction });
+          createdMeterValues.push(createdMeterValue);
+        }
+
+        const meterStart = transaction.startTransaction?.meterStart;
+        if (meterStart === undefined || meterStart === null) {
+          this.logger.warn(
+            `StartTransaction record not found at station ${stationId} for transactionId ${transaction.transactionId}. Cannot calculate totalKwh.`,
+          );
+        }
+
+        // Single UPDATE so isActive=false arrives together with endTime, totalKwh and stoppedReason.
+        await transaction.update(
+          {
+            isActive: false,
+            endTime: timestamp.toISOString(),
+            stoppedReason: reason,
+            ...(meterStart !== undefined && meterStart !== null
+              ? { totalKwh: (meterStop - meterStart) / 1000 } // Convert from Wh to kWh
+              : {}),
+          },
+          { transaction: sequelizeTransaction },
+        );
+
+        return { stopTransaction, createdMeterValues };
+      },
+    );
+
+    // Emit only after COMMIT so listeners never act on rolled-back rows.
+    this.stopTransaction.emit('created', [stopTransaction]);
+    if (createdMeterValues.length > 0) {
+      this.meterValue.emit('created', createdMeterValues);
     }
 
     return stopTransaction;
