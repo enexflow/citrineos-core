@@ -64,7 +64,13 @@ select_permissions:
         - id
         - currency
         - ocpiTariffId
+        - tariffType
+        - startDateTime
         - endDateTime
+        - minPrice
+        - maxPrice
+        - tariffAltText
+        - tariffAltUrl
         - tenantId
         - tenantPartnerId
       filter: {}

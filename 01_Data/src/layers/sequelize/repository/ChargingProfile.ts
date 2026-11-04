@@ -39,6 +39,8 @@ export class SequelizeChargingProfileRepository
   evse: CrudRepository<EvseType>;
   compositeSchedule: CrudRepository<CompositeSchedule>;
 
+  private readonly _upsertQueues = new Map<string, Promise<ChargingProfile>>();
+
   constructor(
     config: BootstrapConfig,
     logger?: Logger<ILogObj>,
@@ -104,87 +106,117 @@ export class SequelizeChargingProfileRepository
     chargingLimitSource?: ChargingLimitSourceEnumType,
     isActive?: boolean,
   ): Promise<ChargingProfile> {
-    let transactionDBId;
-    if (chargingProfile.transactionId) {
-      const activeTransaction = await Transaction.findOne({
-        where: {
-          stationId,
-          transactionId: chargingProfile.transactionId,
-        },
-      });
-      transactionDBId = activeTransaction?.id;
+    // Queue same-profile upserts in-process so that waiters do not each hold a pooled connection.
+    const key = `${tenantId}:${stationId}:${chargingProfile.id}`;
+    const upsert = () =>
+      this._createOrUpdateChargingProfile(
+        tenantId,
+        chargingProfile,
+        stationId,
+        evseId,
+        chargingLimitSource,
+        isActive,
+      );
+    const current = (this._upsertQueues.get(key) ?? Promise.resolve()).then(upsert, upsert);
+    this._upsertQueues.set(key, current);
+    try {
+      return await current;
+    } finally {
+      if (this._upsertQueues.get(key) === current) {
+        this._upsertQueues.delete(key);
+      }
     }
+  }
 
-    const [savedChargingProfile, profileCreated] = await this.readOrCreateByQuery(tenantId, {
-      where: {
-        tenantId: tenantId,
-        stationId: stationId,
-        id: chargingProfile.id,
-      },
-      defaults: {
-        ...chargingProfile,
+  private async _createOrUpdateChargingProfile(
+    tenantId: number,
+    chargingProfile: ChargingProfileInput,
+    stationId: string,
+    evseId?: number | null,
+    chargingLimitSource?: ChargingLimitSourceEnumType,
+    isActive?: boolean,
+  ): Promise<ChargingProfile> {
+    // One transaction with the profile row locked: stations such as Kempower send several
+    // ReportChargingProfiles in parallel for the same profile, and interleaved schedule
+    // replacements used to fail with "Deleted 0 entries, expected 1" (TECH-2550).
+    return await this.s.transaction(async (transaction) => {
+      // Fail fast rather than pin a connection behind a stuck holder on another instance.
+      await this.s.query(`SET LOCAL lock_timeout = '5s'`, { transaction });
+
+      let transactionDBId;
+      if (chargingProfile.transactionId) {
+        const activeTransaction = await Transaction.findOne({
+          where: {
+            stationId,
+            transactionId: chargingProfile.transactionId,
+          },
+          transaction,
+        });
+        transactionDBId = activeTransaction?.id;
+      }
+
+      const { chargingSchedule: chargingSchedules, ...profileFields } = chargingProfile;
+      const values = {
+        ...profileFields,
         stationId: stationId,
         evseId: evseId,
         transactionDatabaseId: transactionDBId,
         chargingLimitSource: chargingLimitSource ?? ChargingLimitSourceEnum.CSO,
         isActive: isActive === undefined ? false : isActive,
-      },
-    });
-    if (!profileCreated) {
-      await this.updateByKey(
-        tenantId,
-        {
-          ...chargingProfile,
-          chargingSchedule: chargingProfile.chargingSchedule.map((s) => ({ ...s })) as
-            | [ChargingSchedule]
-            | [ChargingSchedule, ChargingSchedule]
-            | [ChargingSchedule, ChargingSchedule, ChargingSchedule],
-          stationId: stationId,
-          transactionDatabaseId: transactionDBId,
-          evseId: evseId,
-          chargingLimitSource: chargingLimitSource ?? ChargingLimitSourceEnum.CSO,
-          isActive: isActive === undefined ? false : isActive,
-        },
-        savedChargingProfile.databaseId.toString(),
-      );
-      // delete existed charging schedules and sales tariff
-      const deletedChargingSchedules = await this.chargingSchedule.deleteAllByQuery(tenantId, {
+      };
+
+      const [savedChargingProfile, profileCreated] = await ChargingProfile.findOrCreate({
         where: {
-          chargingProfileDatabaseId: savedChargingProfile.databaseId,
+          tenantId: tenantId,
+          stationId: stationId,
+          id: chargingProfile.id,
         },
+        defaults: values,
+        transaction,
       });
-      for (const deletedSchedule of deletedChargingSchedules) {
-        await this.salesTariff.deleteAllByQuery(tenantId, {
-          where: {
-            chargingScheduleDatabaseId: deletedSchedule.databaseId,
-          },
+      if (!profileCreated) {
+        await savedChargingProfile.reload({ lock: transaction.LOCK.UPDATE, transaction });
+        await savedChargingProfile.update(values, { transaction });
+
+        const staleSchedules = await ChargingSchedule.findAll({
+          where: { chargingProfileDatabaseId: savedChargingProfile.databaseId },
+          attributes: ['databaseId'],
+          transaction,
+        });
+        await SalesTariff.destroy({
+          where: { chargingScheduleDatabaseId: staleSchedules.map((s) => s.databaseId) },
+          transaction,
+        });
+        await ChargingSchedule.destroy({
+          where: { chargingProfileDatabaseId: savedChargingProfile.databaseId },
+          transaction,
         });
       }
-    }
 
-    for (const chargingSchedule of chargingProfile.chargingSchedule) {
-      const savedChargingSchedule = await this.chargingSchedule.create(
-        tenantId,
-        ChargingSchedule.build({
-          tenantId,
-          stationId,
-          chargingProfileDatabaseId: savedChargingProfile.databaseId,
-          ...chargingSchedule,
-        }),
-      );
-      if (chargingSchedule.salesTariff) {
-        await this.salesTariff.create(
-          tenantId,
-          SalesTariff.build({
+      for (const chargingSchedule of chargingSchedules) {
+        const savedChargingSchedule = await ChargingSchedule.create(
+          {
             tenantId,
-            chargingScheduleDatabaseId: savedChargingSchedule.databaseId,
-            ...chargingSchedule.salesTariff,
-          }),
+            stationId,
+            chargingProfileDatabaseId: savedChargingProfile.databaseId,
+            ...chargingSchedule,
+          },
+          { transaction },
         );
+        if (chargingSchedule.salesTariff) {
+          await SalesTariff.create(
+            {
+              tenantId,
+              chargingScheduleDatabaseId: savedChargingSchedule.databaseId,
+              ...chargingSchedule.salesTariff,
+            },
+            { transaction },
+          );
+        }
       }
-    }
 
-    return savedChargingProfile;
+      return savedChargingProfile;
+    });
   }
 
   async createChargingNeeds(

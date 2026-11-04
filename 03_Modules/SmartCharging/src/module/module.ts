@@ -57,6 +57,9 @@ export class SmartChargingModule extends AbstractModule {
 
   _responses: CallAction[] = [];
 
+  private static readonly CHARGING_PROFILES_REFRESH_NAMESPACE = 'ChargingProfilesRefresh';
+  private static readonly CHARGING_PROFILES_REFRESH_DELAY_SECONDS = 5;
+
   protected _transactionEventRepository: ITransactionEventRepository;
   protected _deviceModelRepository: IDeviceModelRepository;
   protected _chargingProfileRepository: IChargingProfileRepository;
@@ -436,40 +439,62 @@ export class SmartChargingModule extends AbstractModule {
       this._logger.error(`Failed to set charging profile: ${JSON.stringify(response)}`);
     } else {
       const stationId: string = message.context.stationId;
-      // Set existed profiles to isActive false
-      await this._chargingProfileRepository.updateAllByQuery(
-        tenantId,
-        {
-          isActive: false,
-        },
-        {
-          where: {
-            tenantId: tenantId,
-            stationId: stationId,
-            isActive: true,
-            chargingLimitSource: OCPP2_0_1.ChargingLimitSourceEnumType.CSO,
-          },
-          returning: false,
-        },
+      // EMS setpoints arrive in bursts (one per EVSE): one deferred refresh per station covers the
+      // whole burst instead of overlapping GetChargingProfiles report cycles (TECH-2550).
+      const scheduled = await this._cache.setIfNotExist(
+        `${tenantId}:${stationId}`,
+        'pending',
+        SmartChargingModule.CHARGING_PROFILES_REFRESH_NAMESPACE,
+        SmartChargingModule.CHARGING_PROFILES_REFRESH_DELAY_SECONDS,
       );
-      // Request charging profiles to get the latest data
-      await this.sendCall(
-        stationId,
-        message.context.tenantId,
-        OCPPVersion.OCPP2_0_1,
-        OCPP2_0_1_CallAction.GetChargingProfiles,
-        {
-          requestId: await this._idGenerator.generateRequestId(
-            message.context.tenantId,
-            message.context.stationId,
-            ChargingStationSequenceTypeEnum.getChargingProfiles,
+      if (!scheduled) {
+        this._logger.debug(`Charging profiles refresh already scheduled for station ${stationId}`);
+        return;
+      }
+      setTimeout(() => {
+        this._refreshChargingProfiles(tenantId, stationId).catch((error) =>
+          this._logger.error(
+            `Failed to refresh charging profiles of station ${stationId}: ${error}`,
           ),
-          chargingProfile: {
-            chargingLimitSource: [OCPP2_0_1.ChargingLimitSourceEnumType.CSO],
-          } as OCPP2_0_1.ChargingProfileCriterionType,
-        } as OCPP2_0_1.GetChargingProfilesRequest,
-      );
+        );
+      }, SmartChargingModule.CHARGING_PROFILES_REFRESH_DELAY_SECONDS * 1000);
     }
+  }
+
+  private async _refreshChargingProfiles(tenantId: number, stationId: string): Promise<void> {
+    // Set existed profiles to isActive false
+    await this._chargingProfileRepository.updateAllByQuery(
+      tenantId,
+      {
+        isActive: false,
+      },
+      {
+        where: {
+          tenantId: tenantId,
+          stationId: stationId,
+          isActive: true,
+          chargingLimitSource: OCPP2_0_1.ChargingLimitSourceEnumType.CSO,
+        },
+        returning: false,
+      },
+    );
+    // Request charging profiles to get the latest data
+    await this.sendCall(
+      stationId,
+      tenantId,
+      OCPPVersion.OCPP2_0_1,
+      OCPP2_0_1_CallAction.GetChargingProfiles,
+      {
+        requestId: await this._idGenerator.generateRequestId(
+          tenantId,
+          stationId,
+          ChargingStationSequenceTypeEnum.getChargingProfiles,
+        ),
+        chargingProfile: {
+          chargingLimitSource: [OCPP2_0_1.ChargingLimitSourceEnumType.CSO],
+        } as OCPP2_0_1.ChargingProfileCriterionType,
+      } as OCPP2_0_1.GetChargingProfilesRequest,
+    );
   }
 
   @AsHandler(OCPPVersion.OCPP2_0_1, OCPP2_0_1_CallAction.ClearedChargingLimit)

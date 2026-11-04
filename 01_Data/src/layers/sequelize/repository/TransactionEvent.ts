@@ -134,6 +134,8 @@ export class SequelizeTransactionEventRepository
     return await this.s.transaction(async (sequelizeTransaction) => {
       let finalTransaction: Transaction;
       let created = false;
+      let isStaleEvent = false;
+
       const existingTransaction = await this.transaction.readOnlyOneByQuery(tenantId, {
         where: {
           stationId,
@@ -141,8 +143,24 @@ export class SequelizeTransactionEventRepository
         },
         transaction: sequelizeTransaction,
       });
-
       if (existingTransaction) {
+        const latestSeqNo: number | null = await TransactionEvent.max('seqNo', {
+          where: { tenantId, transactionDatabaseId: existingTransaction.id },
+          transaction: sequelizeTransaction,
+        });
+        const alreadyEnded =
+          !!existingTransaction.endTime &&
+          value.eventType !== OCPP2_0_1.TransactionEventEnumType.Ended;
+        const outOfOrder = latestSeqNo !== null && value.seqNo < latestSeqNo;
+        isStaleEvent = alreadyEnded || outOfOrder;
+      }
+
+      if (existingTransaction && isStaleEvent) {
+        this.logger.warn(
+          `Stale TransactionEvent (seqNo ${value.seqNo}, ${value.eventType}) for transaction ${existingTransaction.transactionId}; storing event without updating transaction state.`,
+        );
+        finalTransaction = existingTransaction;
+      } else if (existingTransaction) {
         let evseId = existingTransaction.evseId;
         if (!evseId && value.evse) {
           const [evse] = await this.evse.readOrCreateByQuery(tenantId, {
@@ -380,30 +398,32 @@ export class SequelizeTransactionEventRepository
             return savedMeterValue;
           }),
         );
-        if (finalTransaction.meterStart === null || finalTransaction.meterStart === undefined) {
-          const meterStart = MeterValueUtils.getMeterStart(meterValueTypes);
-          await finalTransaction.update(
-            {
-              totalKwh: MeterValueUtils.getTotalKwh(
-                meterValueTypes,
-                finalTransaction.totalKwh ?? 0,
-                meterStart ?? undefined,
-              ),
-              meterStart: meterStart,
-            },
-            { transaction: sequelizeTransaction },
-          );
-        } else {
-          await finalTransaction.update(
-            {
-              totalKwh: MeterValueUtils.getTotalKwh(
-                meterValueTypes,
-                finalTransaction.totalKwh ?? 0,
-                finalTransaction.meterStart ?? undefined,
-              ),
-            },
-            { transaction: sequelizeTransaction },
-          );
+        if (!isStaleEvent) {
+          if (finalTransaction.meterStart === null || finalTransaction.meterStart === undefined) {
+            const meterStart = MeterValueUtils.getMeterStart(meterValueTypes);
+            await finalTransaction.update(
+              {
+                totalKwh: MeterValueUtils.getTotalKwh(
+                  meterValueTypes,
+                  finalTransaction.totalKwh ?? 0,
+                  meterStart ?? undefined,
+                ),
+                meterStart: meterStart,
+              },
+              { transaction: sequelizeTransaction },
+            );
+          } else {
+            await finalTransaction.update(
+              {
+                totalKwh: MeterValueUtils.getTotalKwh(
+                  meterValueTypes,
+                  finalTransaction.totalKwh ?? 0,
+                  finalTransaction.meterStart ?? undefined,
+                ),
+              },
+              { transaction: sequelizeTransaction },
+            );
+          }
         }
         // Included for ease of access after creation
         finalTransaction.meterValues = newMeterValues;
@@ -412,8 +432,9 @@ export class SequelizeTransactionEventRepository
       // For register-based calculations (most common), we only need first and last meter values
       this.emit('created', [event]);
 
-      this.transaction.emit(created ? 'created' : 'updated', [finalTransaction]);
-
+      if (!isStaleEvent) {
+        this.transaction.emit(created ? 'created' : 'updated', [finalTransaction]);
+      }
       return finalTransaction;
     });
   }

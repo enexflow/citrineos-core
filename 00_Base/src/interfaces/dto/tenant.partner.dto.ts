@@ -14,6 +14,7 @@ export const RoamingPartnerSchema = BaseSchema.extend({
   signatureDate: z.coerce.date().nullable().optional(),
   contractStartDate: z.coerce.date().nullable().optional(),
   roles: z.array(z.enum(['CPO', 'EMSP'])).optional(),
+  isHdv: z.boolean().optional(),
 });
 
 export const TenantPartnerSchema = BaseSchema.extend({
@@ -21,6 +22,8 @@ export const TenantPartnerSchema = BaseSchema.extend({
   countryCode: z.string().nullable().optional(),
   partyId: z.string().nullable().optional(),
   partnerProfileOCPI: PartnerProfileSchema,
+  name: z.string().nullable().optional(),
+  isHdv: z.boolean().optional(),
   awsSecretCertificateArn: z.string().nullable().optional(),
   roamingPartners: z.array(RoamingPartnerSchema).nullable().optional(),
 });

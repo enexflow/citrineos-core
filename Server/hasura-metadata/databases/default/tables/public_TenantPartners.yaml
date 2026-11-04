@@ -73,5 +73,7 @@ select_permissions:
         - id
         - countryCode
         - partyId
+        - name
+        - isHdv
       filter: {}
     comment: Read-only role for the Patterm timeseries_api roaming proxy (TECH-1807); SELECT only, target of the Locations.OwnerTenantPartner / Tariffs.TenantPartner relationship filters.

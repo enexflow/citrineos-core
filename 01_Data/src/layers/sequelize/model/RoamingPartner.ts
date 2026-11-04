@@ -12,14 +12,8 @@ export class RoamingPartner extends Model {
   @Column({ type: DataType.STRING(3), allowNull: false })
   declare partyId: string;
 
-  @Column({ type: DataType.STRING(10), allowNull: false })
-  declare role: string;
-
   @Column({ type: DataType.JSONB, allowNull: false, defaultValue: [] })
   declare roles: Array<'CPO' | 'EMSP'>;
-
-  @Column({ type: DataType.STRING(20), allowNull: false })
-  declare status: string;
 
   @Column({ type: DataType.INTEGER, allowNull: false })
   declare tenantPartnerId: number;
@@ -32,4 +26,7 @@ export class RoamingPartner extends Model {
 
   @Column({ type: DataType.DATE, allowNull: true })
   declare contractStartDate: Date | null;
+
+  @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false })
+  declare isHdv: boolean;
 }

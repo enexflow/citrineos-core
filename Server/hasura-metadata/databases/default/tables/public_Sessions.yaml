@@ -29,6 +29,7 @@ select_permissions:
         - status
         - tenantPartnerId
         - totalCost
+        - cdrToken
       filter: {}
       allow_aggregations: true
     comment: Read-only role for the OCPI monitor UI
