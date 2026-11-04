@@ -12,11 +12,13 @@ vi.mock('amqplib', () => ({
 }));
 
 function aFakeChannel() {
+  let consumerCount = 0;
   return {
     assertExchange: vi.fn().mockResolvedValue(undefined),
     assertQueue: vi.fn().mockResolvedValue(undefined),
     bindQueue: vi.fn().mockResolvedValue(undefined),
-    consume: vi.fn().mockResolvedValue(undefined),
+    consume: vi.fn().mockImplementation(async () => ({ consumerTag: `ctag-${++consumerCount}` })),
+    cancel: vi.fn().mockResolvedValue(undefined),
     ack: vi.fn(),
     nack: vi.fn(),
     unbindQueue: vi.fn().mockResolvedValue(undefined),
@@ -166,6 +168,39 @@ describe('RabbitMqReceiver reconnection', () => {
       consumerCallback(channel)(null);
 
       await vi.waitFor(() => expect(connections[0].close).toHaveBeenCalledTimes(1));
+    });
+  });
+
+  describe('release (station now held by another instance)', () => {
+    it('cancels this instance consumers without unbinding or deleting the shared queue', async () => {
+      const channel = channels[0];
+      await receiver.subscribe('cp001');
+
+      expect(await receiver.release('cp001')).toBe(true);
+
+      expect(channel.cancel).toHaveBeenCalledWith('ctag-1');
+      expect(channel.cancel).toHaveBeenCalledWith('ctag-2');
+      expect(channel.unbindQueue).not.toHaveBeenCalled();
+      expect(channel.deleteQueue).not.toHaveBeenCalled();
+    });
+
+    it('is not re-subscribed by a later reconnect', async () => {
+      await receiver.release('cp001');
+
+      await (receiver as any)._handleDisconnect();
+      await (receiver as any)._connectOnce();
+
+      expect(channels[1].consume).not.toHaveBeenCalled();
+    });
+
+    it('does not cancel consumers of a channel replaced by a reconnect', async () => {
+      await (receiver as any)._handleDisconnect();
+      await (receiver as any)._connectOnce();
+
+      await receiver.release('cp001');
+
+      expect(channels[0].cancel).not.toHaveBeenCalled();
+      expect(channels[1].cancel).toHaveBeenCalledTimes(1);
     });
   });
 

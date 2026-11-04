@@ -65,7 +65,6 @@ import {
   Authenticator,
   BasicAuthenticationFilter,
   CertificateAuthorityService,
-  ConnectedStationFilter,
   IdGenerator,
   initSwagger,
   isApiDocsExposed,
@@ -348,7 +347,6 @@ export class CitrineOSServer {
         new sequelize.SequelizeLocationRepository(this._config, this._logger),
         this._logger,
       ),
-      new ConnectedStationFilter(this._cache, this._logger),
       new NetworkProfileFilter(
         new sequelize.SequelizeDeviceModelRepository(this._config, this._logger),
         this._logger,
