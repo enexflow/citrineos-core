@@ -212,6 +212,12 @@ export class MessageRouterImpl extends AbstractMessageRouter implements IMessage
     return await this._handler.unsubscribe(connectionIdentifier);
   }
 
+  async releaseConnection(tenantId: number, stationId: string): Promise<boolean> {
+    // Webhook onClose callbacks are left alone: firing them would report a station offline
+    // while it is connected to another instance.
+    return await this._handler.release(createIdentifier(tenantId, stationId));
+  }
+
   async onMessage(
     identifier: string,
     message: string,

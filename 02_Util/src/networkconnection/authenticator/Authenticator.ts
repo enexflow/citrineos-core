@@ -8,25 +8,21 @@ import { Logger } from 'tslog';
 import { IncomingMessage } from 'http';
 import { UnknownStationFilter } from './UnknownStationFilter.js';
 import { BasicAuthenticationFilter } from './BasicAuthenticationFilter.js';
-import { ConnectedStationFilter } from './ConnectedStationFilter.js';
 import { NetworkProfileFilter } from './NetworkProfileFilter.js';
 
 export class Authenticator implements IAuthenticator {
   protected _logger: Logger<ILogObj>;
   private _unknownStationFilter: UnknownStationFilter;
-  private _connectedStationFilter: ConnectedStationFilter;
   private _networkProfileFilter: NetworkProfileFilter;
   private _basicAuthenticationFilter: BasicAuthenticationFilter;
 
   constructor(
     unknownStationFilter: UnknownStationFilter,
-    connectedStationFilter: ConnectedStationFilter,
     networkProfileFilter: NetworkProfileFilter,
     basicAuthenticationFilter: BasicAuthenticationFilter,
     logger?: Logger<ILogObj>,
   ) {
     this._unknownStationFilter = unknownStationFilter;
-    this._connectedStationFilter = connectedStationFilter;
     this._networkProfileFilter = networkProfileFilter;
     this._basicAuthenticationFilter = basicAuthenticationFilter;
     this._logger = logger
@@ -43,7 +39,6 @@ export class Authenticator implements IAuthenticator {
     this._logger.debug(`Starting authentication for identifier: ${identifier}`);
 
     await this._unknownStationFilter.authenticate(tenantId, identifier, request, options);
-    await this._connectedStationFilter.authenticate(tenantId, identifier, request, options);
     await this._networkProfileFilter.authenticate(tenantId, identifier, request, options);
     await this._basicAuthenticationFilter.authenticate(tenantId, identifier, request, options);
 
