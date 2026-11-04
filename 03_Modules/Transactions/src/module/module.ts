@@ -592,6 +592,10 @@ export class TransactionsModule extends AbstractModule {
         for (const meterValue of meterValues) {
           if (meterValue.sampledValue && meterValue.sampledValue.length > 0) {
             const meterValueEntity = OCPP1_6_Mapper.MeterValueMapper.fromMeterValueType(meterValue);
+            // Only SignedData values (Eichrecht): nothing usable to store
+            if (meterValueEntity.sampledValue.length === 0) {
+              continue;
+            }
             meterValueEntity.tenantId = tenantId;
             meterValueEntity.connectorId = connectorId;
             meterValueEntities.push(meterValueEntity);
@@ -750,20 +754,31 @@ export class TransactionsModule extends AbstractModule {
 
     // OCPP 1.6 §4.10: an omitted Reason SHOULD be assumed 'Local'.
     const stoppedReason = request.reason ?? OCPP1_6.StopTransactionRequestReason.Local;
-    const meterValues =
-      request.transactionData
-        ?.map((data) =>
-          OCPP1_6_Mapper.MeterValueMapper.fromMeterValueType(
-            data as OCPP1_6.MeterValuesRequest['meterValue'][0],
-          ),
-        )
-        .filter((meterValue) => meterValue.sampledValue.length > 0) || [];
+    // Mapped one by one: an unparsable reading must cost only that reading, not the close.
+    const meterValues: MeterValueDto[] = [];
+    for (const data of request.transactionData ?? []) {
+      try {
+        const meterValue = OCPP1_6_Mapper.MeterValueMapper.fromMeterValueType(
+          data as OCPP1_6.MeterValuesRequest['meterValue'][0],
+        );
+        if (meterValue.sampledValue.length > 0) {
+          meterValues.push(meterValue);
+        }
+      } catch (error) {
+        this._logger.error('Dropping unparsable StopTransaction transactionData reading', {
+          stationId,
+          transactionId: request.transactionId,
+          readingTimestamp: data.timestamp,
+          error,
+        });
+      }
+    }
 
     // createStopTransaction closes the transaction atomically (isActive, endTime, totalKwh,
-    // stoppedReason), so OCPI builds the CDR from the final row.
-    let stopTransaction;
+    // stoppedReason), so OCPI builds the CDR from the final row. It drops failing readings
+    // itself, so an error here means the close itself failed.
     try {
-      stopTransaction = await this._transactionEventRepository.createStopTransaction(
+      await this._transactionEventRepository.createStopTransaction(
         tenantId,
         transaction.id,
         stationId,
@@ -774,27 +789,17 @@ export class TransactionsModule extends AbstractModule {
         authorization?.id,
       );
     } catch (error) {
-      // The response is already sent, so the station will not retry: never leave the transaction open.
-      this._logger.error(
-        `Failed to store StopTransaction for transaction ${request.transactionId}, retrying without meter values`,
-        error,
-      );
-      stopTransaction = await this._transactionEventRepository.createStopTransaction(
-        tenantId,
-        transaction.id,
+      // The CALLRESULT is already sent, so the station will not retry and a CallError would contradict
+      // it: log everything needed to close the transaction by hand instead of rethrowing.
+      this._logger.error('StopTransaction not stored, transaction left open', {
         stationId,
-        request.meterStop,
-        new Date(request.timestamp),
-        [],
-        stoppedReason,
-        authorization?.id,
-      );
-    }
-
-    if (!stopTransaction) {
-      this._logger.error(
-        `Failed to create StopTransaction record for transaction ${request.transactionId}`,
-      );
+        transactionId: request.transactionId,
+        transactionDatabaseId: transaction.id,
+        meterStop: request.meterStop,
+        timestamp: request.timestamp,
+        reason: stoppedReason,
+        error,
+      });
     }
   }
 }

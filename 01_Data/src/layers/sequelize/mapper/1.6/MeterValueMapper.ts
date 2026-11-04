@@ -462,14 +462,16 @@ export class MeterValueMapper {
   }
 
   /**
-   * Converts OCPP 1.6 SampledValueType[] back to SampledValue[]
+   * Converts OCPP 1.6 SampledValueType[] back to SampledValue[].
+   * Unsupported (SignedData) values are dropped, so the result can be empty: callers must skip
+   * empty meter values instead of storing them (an undefined entry would be persisted as null).
    */
   static fromSampledValueTypes(
     sampledValueTypes: OCPP1_6.MeterValuesRequest['meterValue'][0]['sampledValue'],
   ): [SampledValue, ...SampledValue[]] {
-    const sampledValues = sampledValueTypes.map((svt) =>
-      MeterValueMapper.fromSampledValueType(svt),
-    );
+    const sampledValues = sampledValueTypes
+      .map((svt) => MeterValueMapper.fromSampledValueType(svt))
+      .filter((sv): sv is SampledValue => sv !== undefined);
 
     return sampledValues as [SampledValue, ...SampledValue[]];
   }

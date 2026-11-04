@@ -1,13 +1,15 @@
 // SPDX-FileCopyrightText: 2025 Contributors to the CitrineOS Project
 //
 // SPDX-License-Identifier: Apache-2.0
-import { OCPP2_0_1 } from '@citrineos/base';
+import { OCPP1_6, OCPP2_0_1 } from '@citrineos/base';
 import { setupTestDatabase } from './setupTestDatabase.js';
 import { SequelizeTransactionEventRepository } from '../../../../src/layers/sequelize/repository/TransactionEvent.js';
 import {
   ChargingStation,
+  Connector,
   MeterValue,
   StartTransaction,
+  StopTransaction,
   Tenant,
   Transaction,
   TransactionEvent,
@@ -299,5 +301,220 @@ describe('SequelizeTransactionEventRepository - OCPP 1.6 createStopTransaction',
     expect(stopReadings.every((mv) => mv.transactionId === '8')).toBe(true);
 
     expect(await MeterValue.count({ where: { transactionDatabaseId: transaction.id } })).toBe(4);
+  });
+
+  it('closes the transaction when a stored reading contains a null sampled value (legacy SignedData)', async () => {
+    const transaction = await startTransaction();
+    const withSignedData = energyReading('2026-10-29T09:11:00.000Z', 28650);
+    await MeterValue.create({
+      ...withSignedData,
+      sampledValue: [...withSignedData.sampledValue, null],
+      tenantId,
+      transactionDatabaseId: transaction.id,
+      transactionId: '8',
+    } as any);
+
+    await repo.createStopTransaction(
+      tenantId,
+      transaction.id,
+      stationId,
+      28724,
+      new Date('2026-10-29T09:11:05.000Z'),
+      [
+        energyReading('2026-10-29T09:11:00.000Z', 28650), // repeat of the reading stored with the null: skipped
+        energyReading('2026-10-29T09:11:04.500Z', 28724),
+      ] as any,
+      'EVDisconnected',
+    );
+
+    const closed = (await Transaction.findByPk(transaction.id))!;
+    expect(closed.isActive).toBe(false);
+    expect(Number(closed.totalKwh)).toBeCloseTo(0.948, 3);
+    expect(
+      await MeterValue.count({
+        where: {
+          transactionDatabaseId: transaction.id,
+          stopTransactionDatabaseId: { [Op.ne]: null },
+        },
+      }),
+    ).toBe(1);
+  });
+  const stop = (transactionDatabaseId: number) =>
+    repo.createStopTransaction(
+      tenantId,
+      transactionDatabaseId,
+      stationId,
+      28724,
+      new Date('2026-10-29T09:11:05.000Z'),
+      [energyReading('2026-10-29T09:11:04.500Z', 28724)] as any,
+      'EVDisconnected',
+    );
+
+  it('finishes a stop half-written by the pre-atomic code (StopTransaction row on an active transaction)', async () => {
+    const transaction = await startTransaction();
+    const halfWritten = await StopTransaction.create({
+      tenantId,
+      stationId,
+      transactionDatabaseId: transaction.id,
+      meterStop: 28724,
+      timestamp: '2026-10-29T09:11:05.000Z',
+      reason: 'EVDisconnected',
+    } as any);
+
+    const result = await stop(transaction.id);
+
+    expect(result.id).toBe(halfWritten.id);
+    const closed = (await Transaction.findByPk(transaction.id))!;
+    expect(closed.isActive).toBe(false);
+    expect(Number(closed.totalKwh)).toBeCloseTo(0.948, 3);
+    expect(await StopTransaction.count({ where: { transactionDatabaseId: transaction.id } })).toBe(
+      1,
+    );
+    expect(await MeterValue.count({ where: { stopTransactionDatabaseId: halfWritten.id } })).toBe(
+      1,
+    );
+  });
+
+  it('ignores a resent StopTransaction for an already closed transaction', async () => {
+    const transaction = await startTransaction();
+    const first = await stop(transaction.id);
+    const emitSpy = vi.spyOn((repo as any).stopTransaction, 'emit');
+
+    const second = await stop(transaction.id);
+
+    expect(second.id).toBe(first.id);
+    expect(emitSpy).not.toHaveBeenCalled();
+    expect(await StopTransaction.count({ where: { transactionDatabaseId: transaction.id } })).toBe(
+      1,
+    );
+    expect(await MeterValue.count({ where: { transactionDatabaseId: transaction.id } })).toBe(3);
+  });
+
+  it('serializes two concurrent StopTransactions instead of failing on the unique constraint', async () => {
+    const transaction = await startTransaction();
+
+    const [a, b] = await Promise.all([stop(transaction.id), stop(transaction.id)]);
+
+    expect(a.id).toBe(b.id);
+    expect((await Transaction.findByPk(transaction.id))!.isActive).toBe(false);
+    expect(await StopTransaction.count({ where: { transactionDatabaseId: transaction.id } })).toBe(
+      1,
+    );
+    expect(await MeterValue.count({ where: { transactionDatabaseId: transaction.id } })).toBe(3);
+  });
+  it('drops only the readings when storing transactionData fails, and still closes the transaction', async () => {
+    const transaction = await startTransaction();
+    const errorSpy = vi.spyOn((repo as any).logger, 'error');
+
+    await repo.createStopTransaction(
+      tenantId,
+      transaction.id,
+      stationId,
+      28724,
+      new Date('2026-10-29T09:11:05.000Z'),
+      [
+        energyReading('2026-10-29T09:11:04.500Z', 28724),
+        energyReading('not-a-timestamp', 28724), // rejected by Postgres: aborts the savepoint only
+      ] as any,
+      'EVDisconnected',
+    );
+
+    const closed = (await Transaction.findByPk(transaction.id))!;
+    expect(closed.isActive).toBe(false);
+    expect(Number(closed.totalKwh)).toBeCloseTo(0.948, 3);
+    expect(await StopTransaction.count({ where: { transactionDatabaseId: transaction.id } })).toBe(
+      1,
+    );
+    // The valid reading of the batch is rolled back too: the whole transactionData is dropped.
+    expect(await MeterValue.count({ where: { transactionDatabaseId: transaction.id } })).toBe(2);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('transactionData dropped'),
+      expect.objectContaining({ droppedMeterValues: 2, droppedSampledValues: 2 }),
+    );
+  });
+  it('rolls back the whole stop when closing the transaction fails', async () => {
+    const transaction = await startTransaction();
+    vi.spyOn(Transaction.prototype, 'update').mockRejectedValueOnce(new Error('update failed'));
+
+    await expect(stop(transaction.id)).rejects.toThrow('update failed');
+    vi.restoreAllMocks();
+
+    expect((await Transaction.findByPk(transaction.id))!.isActive).toBe(true);
+    expect(await StopTransaction.count({ where: { transactionDatabaseId: transaction.id } })).toBe(
+      0,
+    );
+    // Only the 2 readings received during the session: the transactionData insert is rolled back too
+    expect(await MeterValue.count({ where: { transactionDatabaseId: transaction.id } })).toBe(2);
+  });
+
+  describe('1.6 meterStart units (Wh on the wire, kWh on Transaction)', () => {
+    const startRequest: OCPP1_6.StartTransactionRequest = {
+      connectorId: 1,
+      idTag: 'DEADBEEF',
+      meterStart: 27776,
+      timestamp: '2026-10-29T09:10:35.778Z',
+    };
+
+    const startOcpp16Transaction = async () => {
+      await Connector.create({
+        tenantId,
+        stationId,
+        connectorId: 1,
+        status: 'Available',
+        errorCode: 'NoError',
+        timestamp: '2026-10-29T09:00:00.000Z',
+      } as any);
+      (repo as any).chargingStationSequence.getNextSequenceValue = vi.fn().mockResolvedValue(8);
+      return repo.createTransactionByStartTransaction(tenantId, startRequest, stationId);
+    };
+
+    const meterValuesReading = (timestamp: string, sampledValue: any[]) =>
+      ({ timestamp, sampledValue, tenantId, connectorId: 1 }) as any;
+
+    it('stores meterStart in Wh on StartTransaction and in kWh on Transaction', async () => {
+      const transaction = await startOcpp16Transaction();
+
+      expect(Number(transaction.meterStart)).toBeCloseTo(27.776, 6);
+      expect(Number(transaction.startTransaction!.meterStart)).toBe(27776);
+    });
+
+    it('computes the running total in kWh from Wh readings and keeps it on non-energy batches', async () => {
+      const transaction = await startOcpp16Transaction();
+
+      await repo.updateTransactionByMeterValues(
+        tenantId,
+        [
+          meterValuesReading('2026-10-29T09:10:55.367Z', [
+            {
+              value: 28582.15,
+              context: 'Sample.Periodic',
+              measurand: 'Energy.Active.Import.Register',
+              unitOfMeasure: { unit: 'Wh', multiplier: 0 },
+            },
+          ]),
+        ],
+        stationId,
+        8,
+      );
+      expect(Number((await Transaction.findByPk(transaction.id))!.totalKwh)).toBeCloseTo(0.806, 3);
+
+      // A batch with only power (no energy register) must not reset the total
+      await repo.updateTransactionByMeterValues(
+        tenantId,
+        [
+          meterValuesReading('2026-10-29T09:11:00.000Z', [
+            {
+              value: 3300,
+              context: 'Sample.Periodic',
+              measurand: 'Power.Active.Import',
+              unitOfMeasure: { unit: 'W', multiplier: 0 },
+            },
+          ]),
+        ],
+        stationId,
+        8,
+      );
+      expect(Number((await Transaction.findByPk(transaction.id))!.totalKwh)).toBeCloseTo(0.806, 3);
+    });
   });
 });

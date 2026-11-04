@@ -401,6 +401,44 @@ describe('MeterValueMapper (OCPP 1.6)', () => {
         expect(result.sampledValue[0].value).toBe(200);
         expect(result.sampledValue[0].measurand).toBe('Energy.Active.Import.Register');
       });
+
+      it('drops SignedData sampled values instead of leaving undefined entries', () => {
+        const ocppMeterValue: OCPP1_6.MeterValuesRequest['meterValue'][0] = {
+          timestamp: '2025-05-29T14:30:00Z',
+          sampledValue: [
+            {
+              value: '200',
+              measurand: OCPP1_6.MeterValuesRequestMeasurand.Energy_Active_Import_Register,
+              unit: OCPP1_6.MeterValuesRequestUnit.Wh,
+            },
+            {
+              value: 'AP;0;3;ALCV3ABBBISHMA2RYVJYC...',
+              format: OCPP1_6.MeterValuesRequestFormat.SignedData,
+            },
+          ],
+        };
+
+        const result = MeterValueMapper.fromMeterValueType(ocppMeterValue);
+
+        expect(result.sampledValue).toHaveLength(1);
+        expect(result.sampledValue[0].value).toBe(200);
+      });
+
+      it('returns no sampled values when all are SignedData', () => {
+        const ocppMeterValue: OCPP1_6.MeterValuesRequest['meterValue'][0] = {
+          timestamp: '2025-05-29T14:30:00Z',
+          sampledValue: [
+            {
+              value: 'AP;0;3;ALCV3ABBBISHMA2RYVJYC...',
+              format: OCPP1_6.MeterValuesRequestFormat.SignedData,
+            },
+          ],
+        };
+
+        const result = MeterValueMapper.fromMeterValueType(ocppMeterValue);
+
+        expect(result.sampledValue).toEqual([]);
+      });
     });
   });
 
