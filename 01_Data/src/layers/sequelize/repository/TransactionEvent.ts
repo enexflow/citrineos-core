@@ -701,24 +701,40 @@ export class SequelizeTransactionEventRepository
       }),
     );
 
+    // Conditional on isActive, not on the row read above: a reading processed after the stop
+    // committed (concurrent StopTransaction, or a reading queued while offline) must keep the
+    // final totalKwh written by the close.
+    const activeTransaction = { tenantId, id: transaction.id, isActive: true };
+    let updatedCount: number;
     if (transaction.meterStart === null || transaction.meterStart === undefined) {
       const meterStart = MeterValueUtils.getMeterStart(meterValues);
-      await transaction.update({
-        totalKwh: MeterValueUtils.getTotalKwh(
-          meterValues,
-          transaction.totalKwh ?? 0,
-          meterStart ?? undefined,
-        ),
-        meterStart: meterStart,
-      });
+      [updatedCount] = await Transaction.update(
+        {
+          totalKwh: MeterValueUtils.getTotalKwh(
+            meterValues,
+            transaction.totalKwh ?? 0,
+            meterStart ?? undefined,
+          ),
+          meterStart: meterStart,
+        },
+        { where: activeTransaction },
+      );
     } else {
-      await transaction.update({
-        totalKwh: MeterValueUtils.getTotalKwh(
-          meterValues,
-          transaction.totalKwh ?? 0,
-          transaction.meterStart ?? undefined,
-        ),
-      });
+      [updatedCount] = await Transaction.update(
+        {
+          totalKwh: MeterValueUtils.getTotalKwh(
+            meterValues,
+            transaction.totalKwh ?? 0,
+            transaction.meterStart ?? undefined,
+          ),
+        },
+        { where: activeTransaction },
+      );
+    }
+    if (updatedCount === 0) {
+      this.logger.warn(
+        `MeterValues for ended transaction ${transactionId} on ${stationId}: readings stored, totalKwh kept.`,
+      );
     }
   }
 
@@ -884,8 +900,6 @@ export class SequelizeTransactionEventRepository
 
         // Readings are optional for the close: a SAVEPOINT isolates them so a failing insert drops
         // only the readings, while any other error still fails the whole stop.
-        // Counted up front: storeStopMeterValues trims sampledValue in place while deduplicating.
-        const receivedSampledValues = meterValues.reduce((n, mv) => n + mv.sampledValue.length, 0);
         let createdMeterValues: MeterValue[] = [];
         try {
           createdMeterValues = await this.s.transaction(
@@ -907,7 +921,7 @@ export class SequelizeTransactionEventRepository
               transactionId: transaction.transactionId,
               transactionDatabaseId,
               droppedMeterValues: meterValues.length,
-              droppedSampledValues: receivedSampledValues,
+              droppedSampledValues: meterValues.reduce((n, mv) => n + mv.sampledValue.length, 0),
               error,
             },
           );
@@ -958,10 +972,18 @@ export class SequelizeTransactionEventRepository
     stopTransactionDatabaseId: number,
     meterValues: MeterValueDto[],
   ): Promise<MeterValue[]> {
+    if (meterValues.length === 0) {
+      return [];
+    }
     // transactionData repeats readings already received via MeterValues (StopTxnSampledData):
-    // only store sampled values that are not stored yet for this transaction.
+    // only store sampled values that are not stored yet for this transaction. A repeat has the
+    // same timestamp, so only stored readings at the received timestamps are loaded.
     const storedMeterValues = await MeterValue.findAll({
-      where: { tenantId, transactionDatabaseId: transaction.id },
+      where: {
+        tenantId,
+        transactionDatabaseId: transaction.id,
+        timestamp: { [Op.in]: meterValues.map((meterValue) => new Date(meterValue.timestamp)) },
+      },
       attributes: ['timestamp', 'sampledValue'],
       transaction: savepoint,
     });
@@ -978,7 +1000,7 @@ export class SequelizeTransactionEventRepository
     // Sequentially, not Promise.all: one pg transaction cannot interleave statements.
     const createdMeterValues: MeterValue[] = [];
     for (const meterValue of meterValues) {
-      const newSampledValues = meterValue.sampledValue.filter((sampledValue) => {
+      const [first, ...rest] = meterValue.sampledValue.filter((sampledValue) => {
         const key = this.sampledValueKey(meterValue.timestamp, sampledValue);
         if (storedKeys.has(key)) {
           return false;
@@ -986,14 +1008,17 @@ export class SequelizeTransactionEventRepository
         storedKeys.add(key);
         return true;
       });
-      if (newSampledValues.length === 0) {
+      if (!first) {
         continue;
       }
-      meterValue.sampledValue = newSampledValues as MeterValueDto['sampledValue'];
-      meterValue.transactionDatabaseId = transaction.id;
-      meterValue.transactionId = transaction.transactionId;
-      meterValue.tariffId = transaction.tariffId;
-      const createdMeterValue = MeterValue.build(meterValue);
+      // Built from a copy: the caller's meterValues stay as received.
+      const createdMeterValue = MeterValue.build({
+        ...meterValue,
+        sampledValue: [first, ...rest],
+        transactionDatabaseId: transaction.id,
+        transactionId: transaction.transactionId,
+        tariffId: transaction.tariffId,
+      });
       createdMeterValue.stopTransactionDatabaseId = stopTransactionDatabaseId;
       await createdMeterValue.save({ transaction: savepoint });
       createdMeterValues.push(createdMeterValue);

@@ -154,10 +154,9 @@ describe('TransactionsModule - OCPP 1.6 handlers', () => {
     });
 
     it('does not pass readings left without sampled values (SignedData only)', async () => {
-      vi.spyOn(OCPP1_6_Mapper.MeterValueMapper, 'fromMeterValueType').mockReturnValueOnce({
-        timestamp: '2026-10-29T09:11:00.000Z',
-        sampledValue: [] as any,
-      });
+      vi.spyOn(OCPP1_6_Mapper.MeterValueMapper, 'fromMeterValueType').mockReturnValueOnce(
+        undefined,
+      );
 
       await handle(stopRequest({ transactionData: [rawReading('2026-10-29T09:11:00.000Z', '1')] }));
 
@@ -190,10 +189,7 @@ describe('TransactionsModule - OCPP 1.6 handlers', () => {
       module._handleOcpp16MeterValues(message(request));
 
     it('does not store meter values left without sampled values (SignedData only)', async () => {
-      vi.spyOn(OCPP1_6_Mapper.MeterValueMapper, 'fromMeterValueType').mockReturnValue({
-        timestamp: '2026-10-29T09:11:00.000Z',
-        sampledValue: [] as any,
-      });
+      vi.spyOn(OCPP1_6_Mapper.MeterValueMapper, 'fromMeterValueType').mockReturnValue(undefined);
 
       await handle({
         connectorId: 1,
@@ -206,10 +202,9 @@ describe('TransactionsModule - OCPP 1.6 handlers', () => {
     });
 
     it('stores only the meter values that still have sampled values', async () => {
-      vi.spyOn(OCPP1_6_Mapper.MeterValueMapper, 'fromMeterValueType').mockReturnValueOnce({
-        timestamp: '2026-10-29T09:11:00.000Z',
-        sampledValue: [] as any,
-      });
+      vi.spyOn(OCPP1_6_Mapper.MeterValueMapper, 'fromMeterValueType').mockReturnValueOnce(
+        undefined,
+      );
 
       await handle({
         connectorId: 1,

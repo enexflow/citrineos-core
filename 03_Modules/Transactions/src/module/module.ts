@@ -593,7 +593,7 @@ export class TransactionsModule extends AbstractModule {
           if (meterValue.sampledValue && meterValue.sampledValue.length > 0) {
             const meterValueEntity = OCPP1_6_Mapper.MeterValueMapper.fromMeterValueType(meterValue);
             // Only SignedData values (Eichrecht): nothing usable to store
-            if (meterValueEntity.sampledValue.length === 0) {
+            if (!meterValueEntity) {
               continue;
             }
             meterValueEntity.tenantId = tenantId;
@@ -761,7 +761,7 @@ export class TransactionsModule extends AbstractModule {
         const meterValue = OCPP1_6_Mapper.MeterValueMapper.fromMeterValueType(
           data as OCPP1_6.MeterValuesRequest['meterValue'][0],
         );
-        if (meterValue.sampledValue.length > 0) {
+        if (meterValue) {
           meterValues.push(meterValue);
         }
       } catch (error) {

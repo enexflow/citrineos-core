@@ -396,10 +396,10 @@ describe('MeterValueMapper (OCPP 1.6)', () => {
 
         const result = MeterValueMapper.fromMeterValueType(ocppMeterValue);
 
-        expect(result.timestamp).toBe('2025-05-29T14:30:00Z');
-        expect(result.sampledValue).toHaveLength(1);
-        expect(result.sampledValue[0].value).toBe(200);
-        expect(result.sampledValue[0].measurand).toBe('Energy.Active.Import.Register');
+        expect(result?.timestamp).toBe('2025-05-29T14:30:00Z');
+        expect(result?.sampledValue).toHaveLength(1);
+        expect(result?.sampledValue[0].value).toBe(200);
+        expect(result?.sampledValue[0].measurand).toBe('Energy.Active.Import.Register');
       });
 
       it('drops SignedData sampled values instead of leaving undefined entries', () => {
@@ -420,11 +420,11 @@ describe('MeterValueMapper (OCPP 1.6)', () => {
 
         const result = MeterValueMapper.fromMeterValueType(ocppMeterValue);
 
-        expect(result.sampledValue).toHaveLength(1);
-        expect(result.sampledValue[0].value).toBe(200);
+        expect(result?.sampledValue).toHaveLength(1);
+        expect(result?.sampledValue[0].value).toBe(200);
       });
 
-      it('returns no sampled values when all are SignedData', () => {
+      it('returns undefined when all sampled values are SignedData', () => {
         const ocppMeterValue: OCPP1_6.MeterValuesRequest['meterValue'][0] = {
           timestamp: '2025-05-29T14:30:00Z',
           sampledValue: [
@@ -435,9 +435,7 @@ describe('MeterValueMapper (OCPP 1.6)', () => {
           ],
         };
 
-        const result = MeterValueMapper.fromMeterValueType(ocppMeterValue);
-
-        expect(result.sampledValue).toEqual([]);
+        expect(MeterValueMapper.fromMeterValueType(ocppMeterValue)).toBeUndefined();
       });
     });
   });

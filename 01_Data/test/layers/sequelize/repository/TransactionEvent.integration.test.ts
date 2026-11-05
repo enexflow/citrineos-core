@@ -266,19 +266,25 @@ describe('SequelizeTransactionEventRepository - OCPP 1.6 createStopTransaction',
       unitOfMeasure: { unit: 'W', multiplier: 0 },
     });
 
+    const transactionData = [
+      energyReading('2026-10-29T09:10:45.346Z', 28026.64), // exact repeat: skipped
+      repeatedWithNewMeasurand, // repeat + new Power value: only Power is stored
+      energyReading('2026-10-29T09:11:04.500Z', 28724), // new reading: stored
+    ];
+    const received = structuredClone(transactionData);
+
     await repo.createStopTransaction(
       tenantId,
       transaction.id,
       stationId,
       28724,
       new Date('2026-10-29T09:11:05.000Z'),
-      [
-        energyReading('2026-10-29T09:10:45.346Z', 28026.64), // exact repeat: skipped
-        repeatedWithNewMeasurand, // repeat + new Power value: only Power is stored
-        energyReading('2026-10-29T09:11:04.500Z', 28724), // new reading: stored
-      ] as any,
+      transactionData as any,
       'EVDisconnected',
     );
+
+    // Deduplication must not trim or annotate the caller's readings.
+    expect(transactionData).toEqual(received);
 
     const closed = (await Transaction.findByPk(transaction.id))!;
     expect(closed.isActive).toBe(false);
@@ -432,6 +438,24 @@ describe('SequelizeTransactionEventRepository - OCPP 1.6 createStopTransaction',
       expect.objectContaining({ droppedMeterValues: 2, droppedSampledValues: 2 }),
     );
   });
+  it('does not load stored readings when transactionData is empty', async () => {
+    const transaction = await startTransaction();
+    const findAll = vi.spyOn(MeterValue, 'findAll');
+
+    await repo.createStopTransaction(
+      tenantId,
+      transaction.id,
+      stationId,
+      28724,
+      new Date('2026-10-29T09:11:05.000Z'),
+      [],
+      'EVDisconnected',
+    );
+    vi.restoreAllMocks();
+
+    expect(findAll).not.toHaveBeenCalled();
+    expect((await Transaction.findByPk(transaction.id))!.isActive).toBe(false);
+  });
   it('rolls back the whole stop when closing the transaction fails', async () => {
     const transaction = await startTransaction();
     vi.spyOn(Transaction.prototype, 'update').mockRejectedValueOnce(new Error('update failed'));
@@ -515,6 +539,42 @@ describe('SequelizeTransactionEventRepository - OCPP 1.6 createStopTransaction',
         8,
       );
       expect(Number((await Transaction.findByPk(transaction.id))!.totalKwh)).toBeCloseTo(0.806, 3);
+    });
+
+    it('keeps the final totalKwh when a MeterValues arrives after the stop', async () => {
+      const transaction = await startOcpp16Transaction();
+      await repo.createStopTransaction(
+        tenantId,
+        transaction.id,
+        stationId,
+        28724,
+        new Date('2026-10-29T09:11:05.000Z'),
+        [],
+        'EVDisconnected',
+      );
+
+      // Read before the stop committed, or queued while offline: older than meterStop
+      await repo.updateTransactionByMeterValues(
+        tenantId,
+        [
+          meterValuesReading('2026-10-29T09:11:04.600Z', [
+            {
+              value: 28650,
+              context: 'Sample.Periodic',
+              measurand: 'Energy.Active.Import.Register',
+              unitOfMeasure: { unit: 'Wh', multiplier: 0 },
+            },
+          ]),
+        ],
+        stationId,
+        8,
+      );
+
+      const closed = (await Transaction.findByPk(transaction.id))!;
+      expect(closed.isActive).toBe(false);
+      expect(Number(closed.totalKwh)).toBeCloseTo(0.948, 3);
+      // The reading itself is still stored
+      expect(await MeterValue.count({ where: { transactionDatabaseId: transaction.id } })).toBe(1);
     });
   });
 });
