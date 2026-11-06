@@ -592,6 +592,25 @@ describe('MessageRouterImpl', () => {
       expect(cache.onChange).toHaveBeenCalled();
     });
 
+    it('does not subscribe to the inbound lock when it is acquired on the first attempt', async () => {
+      cache.exists.mockResolvedValue(false);
+      vi.spyOn(router as any, '_validateCall').mockReturnValue({ isValid: true });
+      cache.setIfNotExist.mockResolvedValue(true);
+
+      const callMessage = JSON.stringify([
+        MessageTypeId.Call,
+        CORRELATION_ID,
+        OCPP2_0_1_CallAction.Heartbeat,
+        {},
+      ]);
+
+      const result = await router.onMessage(IDENTIFIER, callMessage, timestamp, PROTOCOL);
+
+      expect(result).toBe(true);
+      expect(cache.setIfNotExist).toHaveBeenCalledTimes(1);
+      expect(cache.onChange).not.toHaveBeenCalled();
+    });
+
     it('should allow concurrent inbound Calls with distinct messageIds', async () => {
       cache.exists.mockResolvedValue(false);
       vi.spyOn(router as any, '_validateCall').mockReturnValue({ isValid: true });
