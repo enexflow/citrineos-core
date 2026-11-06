@@ -29,9 +29,11 @@ export class MeterValueUtils {
     currentTotal: number,
     meterStart?: number,
   ): number {
+    // A batch without usable energy readings (e.g. only Sample.Clock, or only Power/SoC)
+    // carries no new information: keep the running total instead of resetting it to 0.
     const filteredValues = this.filterValidMeterValues(meterValues);
     if (filteredValues.length === 0) {
-      return 0;
+      return currentTotal;
     }
 
     const registerMap = this.getRegisterValuesMap(filteredValues);
@@ -55,7 +57,7 @@ export class MeterValueUtils {
       return netMap.get(latestTimestamp)!;
     }
 
-    return 0;
+    return currentTotal;
   }
 
   public static getMeterStart(meterValues: MeterValueDto[]): number | null {

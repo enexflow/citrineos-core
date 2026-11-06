@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Contributors to the CitrineOS Project
 //
 // SPDX-License-Identifier: Apache-2.0
-import type { BootstrapConfig, MeterValueDto } from '@citrineos/base';
+import type { BootstrapConfig, MeterValueDto, SampledValue } from '@citrineos/base';
 import {
   ChargingStationSequenceTypeEnum,
   CrudRepository,
@@ -9,7 +9,7 @@ import {
   OCPP1_6,
   OCPP2_0_1,
 } from '@citrineos/base';
-import type { WhereOptions } from 'sequelize';
+import type { Transaction as SequelizeTransaction, WhereOptions } from 'sequelize';
 import { Op } from 'sequelize';
 import { Sequelize } from 'sequelize-typescript';
 import type { ILogObj } from 'tslog';
@@ -701,24 +701,40 @@ export class SequelizeTransactionEventRepository
       }),
     );
 
+    // Conditional on isActive, not on the row read above: a reading processed after the stop
+    // committed (concurrent StopTransaction, or a reading queued while offline) must keep the
+    // final totalKwh written by the close.
+    const activeTransaction = { tenantId, id: transaction.id, isActive: true };
+    let updatedCount: number;
     if (transaction.meterStart === null || transaction.meterStart === undefined) {
       const meterStart = MeterValueUtils.getMeterStart(meterValues);
-      await transaction.update({
-        totalKwh: MeterValueUtils.getTotalKwh(
-          meterValues,
-          transaction.totalKwh ?? 0,
-          meterStart ?? undefined,
-        ),
-        meterStart: meterStart,
-      });
+      [updatedCount] = await Transaction.update(
+        {
+          totalKwh: MeterValueUtils.getTotalKwh(
+            meterValues,
+            transaction.totalKwh ?? 0,
+            meterStart ?? undefined,
+          ),
+          meterStart: meterStart,
+        },
+        { where: activeTransaction },
+      );
     } else {
-      await transaction.update({
-        totalKwh: MeterValueUtils.getTotalKwh(
-          meterValues,
-          transaction.totalKwh ?? 0,
-          transaction.meterStart ?? undefined,
-        ),
-      });
+      [updatedCount] = await Transaction.update(
+        {
+          totalKwh: MeterValueUtils.getTotalKwh(
+            meterValues,
+            transaction.totalKwh ?? 0,
+            transaction.meterStart ?? undefined,
+          ),
+        },
+        { where: activeTransaction },
+      );
+    }
+    if (updatedCount === 0) {
+      this.logger.warn(
+        `MeterValues for ended transaction ${transactionId} on ${stationId}: readings stored, totalKwh kept.`,
+      );
     }
   }
 
@@ -793,7 +809,9 @@ export class SequelizeTransactionEventRepository
         isActive: true,
         transactionId: transactionId.toString(),
         authorizationId: authorization ? authorization.id : null,
-        meterStart: request.meterStart,
+        // 1.6 meterStart is in Wh; Transaction.meterStart is compared with kWh readings in getTotalKwh.
+        // StartTransaction.meterStart keeps the raw Wh value for the stop calculation.
+        meterStart: request.meterStart / 1000,
         startTime: request.timestamp,
       });
 
@@ -834,44 +852,194 @@ export class SequelizeTransactionEventRepository
     meterValues: MeterValueDto[],
     reason?: string,
   ): Promise<StopTransaction> {
-    const transaction = await this.transaction.readOnlyOneByQuery(tenantId, {
-      where: { id: transactionDatabaseId },
-      include: [StartTransaction],
-    });
+    // One DB transaction for the whole 1.6 stop: the TransactionNotification trigger is only
+    // delivered at COMMIT, so OCPI never sees isActive=false without the final totals.
+    const { stopTransaction, createdMeterValues, isNewStop } = await this.s.transaction(
+      async (sequelizeTransaction) => {
+        // Row lock serializes concurrent stops of the same transaction (a station resending
+        // StopTransaction): the second one waits for the first COMMIT and then sees it closed.
+        // `of` is required: Postgres rejects FOR UPDATE on the nullable side of the LEFT JOIN.
+        const transaction = await Transaction.findOne({
+          where: { tenantId, id: transactionDatabaseId },
+          include: [StartTransaction],
+          lock: { level: sequelizeTransaction.LOCK.UPDATE, of: Transaction },
+          transaction: sequelizeTransaction,
+        });
 
-    if (!transaction) {
-      this.logger.error(`Transaction with id ${transactionDatabaseId} not found.`);
-      throw new Error(`Transaction with id ${transactionDatabaseId} not found.`);
+        if (!transaction) {
+          this.logger.error(`Transaction with id ${transactionDatabaseId} not found.`);
+          throw new Error(`Transaction with id ${transactionDatabaseId} not found.`);
+        }
+
+        // StopTransactions.transactionDatabaseId is unique: reuse an existing row instead of failing on it.
+        const existingStop = await StopTransaction.findOne({
+          where: { transactionDatabaseId },
+          transaction: sequelizeTransaction,
+        });
+        if (existingStop && !transaction.isActive) {
+          this.logger.warn(
+            `StopTransaction for transaction ${transaction.transactionId} on ${stationId} already processed. Ignoring.`,
+          );
+          return { stopTransaction: existingStop, createdMeterValues: [], isNewStop: false };
+        }
+        // An existing row on an active transaction is a stop half-written by the pre-atomic code
+        // (StopTransaction created, transaction never closed): keep it and finish the close.
+        const stopTransaction =
+          existingStop ??
+          (await StopTransaction.create(
+            {
+              tenantId,
+              stationId,
+              transactionDatabaseId,
+              meterStop,
+              timestamp: timestamp.toISOString(),
+              reason,
+            },
+            { transaction: sequelizeTransaction },
+          ));
+
+        // Readings are optional for the close: a SAVEPOINT isolates them so a failing insert drops
+        // only the readings, while any other error still fails the whole stop.
+        let createdMeterValues: MeterValue[] = [];
+        try {
+          createdMeterValues = await this.s.transaction(
+            { transaction: sequelizeTransaction },
+            (savepoint) =>
+              this.storeStopMeterValues(
+                savepoint,
+                tenantId,
+                transaction,
+                stopTransaction.id,
+                meterValues,
+              ),
+          );
+        } catch (error) {
+          this.logger.error(
+            'StopTransaction transactionData dropped, closing transaction without it',
+            {
+              stationId,
+              transactionId: transaction.transactionId,
+              transactionDatabaseId,
+              droppedMeterValues: meterValues.length,
+              droppedSampledValues: meterValues.reduce((n, mv) => n + mv.sampledValue.length, 0),
+              error,
+            },
+          );
+        }
+
+        const meterStart = transaction.startTransaction?.meterStart;
+        if (meterStart === undefined || meterStart === null) {
+          this.logger.warn(
+            `StartTransaction record not found at station ${stationId} for transactionId ${transaction.transactionId}. Cannot calculate totalKwh.`,
+          );
+        }
+
+        // Single UPDATE so isActive=false arrives together with endTime, totalKwh and stoppedReason.
+        await transaction.update(
+          {
+            isActive: false,
+            endTime: timestamp.toISOString(),
+            stoppedReason: reason,
+            ...(meterStart !== undefined && meterStart !== null
+              ? { totalKwh: (meterStop - meterStart) / 1000 } // Convert from Wh to kWh
+              : {}),
+          },
+          { transaction: sequelizeTransaction },
+        );
+
+        return { stopTransaction, createdMeterValues, isNewStop: !existingStop };
+      },
+    );
+
+    // Emit only after COMMIT so listeners never act on rolled-back rows.
+    if (isNewStop) {
+      this.stopTransaction.emit('created', [stopTransaction]);
     }
-
-    const stopTransaction = await StopTransaction.create({
-      tenantId,
-      stationId,
-      transactionDatabaseId,
-      meterStop,
-      timestamp: timestamp.toISOString(),
-      reason,
-    });
-    this.stopTransaction.emit('created', [stopTransaction]);
-
-    await transaction.update({
-      endTime: timestamp,
-      isActive: false,
-    });
-
-    if (meterValues.length > 0) {
-      await Promise.all(
-        meterValues.map(async (meterValue) => {
-          meterValue.transactionDatabaseId = transactionDatabaseId;
-          const createdMeterValue = MeterValue.build(meterValue);
-          createdMeterValue.stopTransactionDatabaseId = stopTransaction.id;
-          await createdMeterValue.save();
-          this.meterValue.emit('created', [createdMeterValue]);
-        }),
-      );
+    if (createdMeterValues.length > 0) {
+      this.meterValue.emit('created', createdMeterValues);
     }
 
     return stopTransaction;
+  }
+
+  /**
+   * Stores the transactionData of a 1.6 StopTransaction, skipping readings already stored for the transaction.
+   */
+  private async storeStopMeterValues(
+    savepoint: SequelizeTransaction,
+    tenantId: number,
+    transaction: Transaction,
+    stopTransactionDatabaseId: number,
+    meterValues: MeterValueDto[],
+  ): Promise<MeterValue[]> {
+    if (meterValues.length === 0) {
+      return [];
+    }
+    // transactionData repeats readings already received via MeterValues (StopTxnSampledData):
+    // only store sampled values that are not stored yet for this transaction. A repeat has the
+    // same timestamp, so only stored readings at the received timestamps are loaded.
+    const storedMeterValues = await MeterValue.findAll({
+      where: {
+        tenantId,
+        transactionDatabaseId: transaction.id,
+        timestamp: { [Op.in]: meterValues.map((meterValue) => new Date(meterValue.timestamp)) },
+      },
+      attributes: ['timestamp', 'sampledValue'],
+      transaction: savepoint,
+    });
+    // Rows stored before SignedData values were filtered out contain nulls: skip them,
+    // otherwise every StopTransaction of that transaction would drop its transactionData.
+    const storedKeys = new Set(
+      storedMeterValues.flatMap((stored) =>
+        (stored.sampledValue ?? [])
+          .filter((sampledValue) => sampledValue != null)
+          .map((sampledValue) => this.sampledValueKey(stored.timestamp, sampledValue)),
+      ),
+    );
+
+    // Sequentially, not Promise.all: one pg transaction cannot interleave statements.
+    const createdMeterValues: MeterValue[] = [];
+    for (const meterValue of meterValues) {
+      const [first, ...rest] = meterValue.sampledValue.filter((sampledValue) => {
+        const key = this.sampledValueKey(meterValue.timestamp, sampledValue);
+        if (storedKeys.has(key)) {
+          return false;
+        }
+        storedKeys.add(key);
+        return true;
+      });
+      if (!first) {
+        continue;
+      }
+      // Built from a copy: the caller's meterValues stay as received.
+      const createdMeterValue = MeterValue.build({
+        ...meterValue,
+        sampledValue: [first, ...rest],
+        transactionDatabaseId: transaction.id,
+        transactionId: transaction.transactionId,
+        tariffId: transaction.tariffId,
+      });
+      createdMeterValue.stopTransactionDatabaseId = stopTransactionDatabaseId;
+      await createdMeterValue.save({ transaction: savepoint });
+      createdMeterValues.push(createdMeterValue);
+    }
+    return createdMeterValues;
+  }
+
+  /**
+   * Identity of one sampled value of a transaction, used to detect readings the station sends twice.
+   */
+  private sampledValueKey(timestamp: string, sampledValue: SampledValue): string {
+    return JSON.stringify([
+      new Date(timestamp).getTime(),
+      sampledValue.measurand ?? null,
+      sampledValue.phase ?? null,
+      sampledValue.location ?? null,
+      sampledValue.context ?? null,
+      Number(sampledValue.value),
+      sampledValue.unitOfMeasure?.unit ?? null,
+      sampledValue.unitOfMeasure?.multiplier ?? 0,
+    ]);
   }
 
   async updateTransactionByStationIdAndTransactionId(
