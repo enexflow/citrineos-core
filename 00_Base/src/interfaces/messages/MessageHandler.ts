@@ -37,6 +37,15 @@ export interface IMessageHandler {
   unsubscribe(identifier: string): Promise<boolean>;
 
   /**
+   * Stop this instance's consumers for the identifier, leaving the shared queue in place
+   * for the instance that now holds the connection.
+   *
+   * @param identifier - The identifier to release.
+   * @returns A promise that resolves to true if consumers were found and cancelled.
+   */
+  release(identifier: string): Promise<boolean>;
+
+  /**
    * Handles incoming messages.
    * @param message - The message to be handled.
    * @param props - Optional properties for the handler.

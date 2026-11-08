@@ -4,7 +4,6 @@
 import {
   Authenticator,
   BasicAuthenticationFilter,
-  ConnectedStationFilter,
   NetworkProfileFilter,
   UnknownStationFilter,
 } from '../../../src';
@@ -16,7 +15,6 @@ import { afterEach, beforeEach, describe, expect, it, Mocked, vi } from 'vitest'
 
 describe('Authenticator', () => {
   let unknownStationFilter: Mocked<UnknownStationFilter>;
-  let connectedStationFilter: Mocked<ConnectedStationFilter>;
   let networkProfileFilter: Mocked<NetworkProfileFilter>;
   let basicAuthenticationFilter: Mocked<BasicAuthenticationFilter>;
   let authenticator: Authenticator;
@@ -25,10 +23,6 @@ describe('Authenticator', () => {
     unknownStationFilter = {
       authenticate: vi.fn(),
     } as unknown as Mocked<UnknownStationFilter>;
-
-    connectedStationFilter = {
-      authenticate: vi.fn(),
-    } as unknown as Mocked<ConnectedStationFilter>;
 
     networkProfileFilter = {
       authenticate: vi.fn(),
@@ -40,7 +34,6 @@ describe('Authenticator', () => {
 
     authenticator = new Authenticator(
       unknownStationFilter,
-      connectedStationFilter,
       networkProfileFilter,
       basicAuthenticationFilter,
     );
@@ -48,7 +41,6 @@ describe('Authenticator', () => {
 
   afterEach(() => {
     unknownStationFilter.authenticate.mockReset();
-    connectedStationFilter.authenticate.mockReset();
     networkProfileFilter.authenticate.mockReset();
     basicAuthenticationFilter.authenticate.mockReset();
   });
@@ -65,24 +57,6 @@ describe('Authenticator', () => {
       ),
     ).rejects.toThrow();
 
-    expect(connectedStationFilter.authenticate).not.toHaveBeenCalled();
-    expect(networkProfileFilter.authenticate).not.toHaveBeenCalled();
-    expect(basicAuthenticationFilter.authenticate).not.toHaveBeenCalled();
-  });
-
-  it('should reject when connected station filter rejects', async () => {
-    const stationId = faker.string.uuid().toString();
-    unknownStationFilter.authenticate.mockResolvedValue(undefined);
-    connectedStationFilter.authenticate.mockRejectedValue(new Error('Station already connected'));
-
-    await expect(
-      authenticator.authenticate(
-        aRequest({ url: `wss://citrineos.io/${stationId}` }),
-        DEFAULT_TENANT_ID,
-        anAuthenticationOptions(),
-      ),
-    ).rejects.toThrow();
-
     expect(networkProfileFilter.authenticate).not.toHaveBeenCalled();
     expect(basicAuthenticationFilter.authenticate).not.toHaveBeenCalled();
   });
@@ -90,7 +64,6 @@ describe('Authenticator', () => {
   it('should reject when network profile filter rejects', async () => {
     const stationId = faker.string.uuid().toString();
     unknownStationFilter.authenticate.mockResolvedValue(undefined);
-    connectedStationFilter.authenticate.mockResolvedValue(undefined);
     networkProfileFilter.authenticate.mockRejectedValue(new Error('Unauthorized'));
 
     await expect(
@@ -107,7 +80,6 @@ describe('Authenticator', () => {
   it('should reject when basic authentication filter rejects', async () => {
     const stationId = faker.string.uuid().toString();
     unknownStationFilter.authenticate.mockResolvedValue(undefined);
-    connectedStationFilter.authenticate.mockResolvedValue(undefined);
     networkProfileFilter.authenticate.mockResolvedValue(undefined);
     basicAuthenticationFilter.authenticate.mockRejectedValue(new Error('Unauthorized'));
 
@@ -123,7 +95,6 @@ describe('Authenticator', () => {
   it('should return identifier when all filters pass', async () => {
     const stationId = faker.string.uuid().toString();
     unknownStationFilter.authenticate.mockResolvedValue(undefined);
-    connectedStationFilter.authenticate.mockResolvedValue(undefined);
     networkProfileFilter.authenticate.mockResolvedValue(undefined);
     basicAuthenticationFilter.authenticate.mockResolvedValue(undefined);
 

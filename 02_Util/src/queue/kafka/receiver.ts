@@ -134,6 +134,11 @@ export class KafkaReceiver extends AbstractMessageHandler implements IMessageHan
       });
   }
 
+  release(identifier: string): Promise<boolean> {
+    // Each identifier has its own consumer here, there is no shared queue to preserve.
+    return this.unsubscribe(identifier);
+  }
+
   async shutdown(): Promise<void> {
     for (const consumer of this._consumerMap.values()) {
       await consumer.disconnect();
