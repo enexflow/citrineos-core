@@ -462,27 +462,28 @@ export class MeterValueMapper {
   }
 
   /**
-   * Converts OCPP 1.6 SampledValueType[] back to SampledValue[]
+   * Converts OCPP 1.6 SampledValueType[] back to SampledValue[].
+   * Unsupported (SignedData) values are dropped, so the result can be empty.
    */
   static fromSampledValueTypes(
     sampledValueTypes: OCPP1_6.MeterValuesRequest['meterValue'][0]['sampledValue'],
-  ): [SampledValue, ...SampledValue[]] {
-    const sampledValues = sampledValueTypes.map((svt) =>
-      MeterValueMapper.fromSampledValueType(svt),
-    );
-
-    return sampledValues as [SampledValue, ...SampledValue[]];
+  ): SampledValue[] {
+    return sampledValueTypes
+      .map((svt) => MeterValueMapper.fromSampledValueType(svt))
+      .filter((sv): sv is SampledValue => sv !== undefined);
   }
 
   /**
-   * Converts OCPP 1.6 MeterValueType back to a partial MeterValue structure
+   * Converts OCPP 1.6 MeterValueType back to a partial MeterValue structure.
+   * Returns undefined when no sampled value is usable (SignedData only): there is nothing to store.
    */
   static fromMeterValueType(
     meterValueType: OCPP1_6.MeterValuesRequest['meterValue'][0],
-  ): MeterValueDto {
-    return {
-      timestamp: meterValueType.timestamp,
-      sampledValue: MeterValueMapper.fromSampledValueTypes(meterValueType.sampledValue),
-    };
+  ): MeterValueDto | undefined {
+    const [first, ...rest] = MeterValueMapper.fromSampledValueTypes(meterValueType.sampledValue);
+    if (!first) {
+      return undefined;
+    }
+    return { timestamp: meterValueType.timestamp, sampledValue: [first, ...rest] };
   }
 }
