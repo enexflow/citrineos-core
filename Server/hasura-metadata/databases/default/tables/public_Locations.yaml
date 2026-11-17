@@ -62,8 +62,9 @@ select_permissions:
         - deletedAt
         - directions
         - ocpiId
+        - timeZone
       filter: {}
-    comment: Read-only role for the Patterm timeseries_api roaming proxy (TECH-1807); SELECT only, cross-tenant (proxy filters by partner in-query). deletedAt is exposed so the proxy can exclude soft-deleted Locations (TECH-2138). ocpiId lets the proxy name the location of a partner session.
+    comment: Read-only role for the Patterm timeseries_api roaming proxy (TECH-1807); SELECT only, cross-tenant (proxy filters by partner in-query). deletedAt is exposed so the proxy can exclude soft-deleted Locations (TECH-2138). ocpiId lets the proxy name the location of a partner session. timeZone dates the tariff validity in the station's local time (TECH-2605).
   - role: user
     permission:
       columns:
