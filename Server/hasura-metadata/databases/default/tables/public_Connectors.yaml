@@ -57,6 +57,7 @@ select_permissions:
     permission:
       columns:
         - id
+        - disableOCPI
       filter: {}
     comment: Read-only role for the OCPI monitor UI
   - role: user
@@ -76,6 +77,7 @@ select_permissions:
         - status
         - ocpiId
         - deletedAt
+        - disableOCPI
       filter:
         tenantId:
           _eq: x-hasura-tenant-id

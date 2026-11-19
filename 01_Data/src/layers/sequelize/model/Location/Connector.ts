@@ -91,6 +91,9 @@ export class Connector extends Model implements ConnectorDto {
   @Column(DataType.STRING)
   declare ocpiId?: string | null;
 
+  @Column(DataType.BOOLEAN)
+  declare disableOCPI?: boolean | null;
+
   @Column(DataType.INTEGER)
   declare maximumPowerWatts?: number | null;
 
