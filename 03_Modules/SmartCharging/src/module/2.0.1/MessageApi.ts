@@ -48,12 +48,16 @@ export class SmartChargingOcpp201Api
   @AsMessageEndpoint(
     OCPP2_0_1_CallAction.ClearChargingProfile,
     OCPP2_0_1.ClearChargingProfileRequestSchema,
+    {
+      correlationId: { type: 'string' },
+    },
   )
   async clearChargingProfile(
     identifier: string[],
     request: OCPP2_0_1.ClearChargingProfileRequest,
     callbackUrl?: string,
     tenantId: number = DEFAULT_TENANT_ID,
+    extraQueries?: Record<string, any>,
   ): Promise<IMessageConfirmation[]> {
     const responses: IMessageConfirmation[] = [];
 
@@ -112,6 +116,7 @@ export class SmartChargingOcpp201Api
         OCPP2_0_1_CallAction.ClearChargingProfile,
         request,
         callbackUrl,
+        extraQueries?.correlationId,
       );
 
       responses.push(response);
@@ -123,12 +128,16 @@ export class SmartChargingOcpp201Api
   @AsMessageEndpoint(
     OCPP2_0_1_CallAction.GetChargingProfiles,
     OCPP2_0_1.GetChargingProfilesRequestSchema,
+    {
+      correlationId: { type: 'string' },
+    },
   )
   async getChargingProfiles(
     identifier: string[],
     request: OCPP2_0_1.GetChargingProfilesRequest,
     callbackUrl?: string,
     tenantId: number = DEFAULT_TENANT_ID,
+    extraQueries?: Record<string, any>,
   ): Promise<IMessageConfirmation[]> {
     const chargingProfile = request.chargingProfile;
 
@@ -189,6 +198,7 @@ export class SmartChargingOcpp201Api
           OCPP2_0_1_CallAction.GetChargingProfiles,
           request,
           callbackUrl,
+          extraQueries?.correlationId,
         ),
       ),
     );
@@ -532,12 +542,16 @@ export class SmartChargingOcpp201Api
   @AsMessageEndpoint(
     OCPP2_0_1_CallAction.GetCompositeSchedule,
     OCPP2_0_1.GetCompositeScheduleRequestSchema,
+    {
+      correlationId: { type: 'string' },
+    },
   )
   async getCompositeSchedule(
     identifier: string[],
     request: OCPP2_0_1.GetCompositeScheduleRequest,
     callbackUrl?: string,
     tenantId: number = DEFAULT_TENANT_ID,
+    extraQueries?: Record<string, any>,
   ): Promise<IMessageConfirmation[]> {
     return Promise.all(
       identifier.map(async (id) => {
@@ -575,6 +589,7 @@ export class SmartChargingOcpp201Api
           OCPP2_0_1_CallAction.GetCompositeSchedule,
           request,
           callbackUrl,
+          extraQueries?.correlationId,
         );
       }),
     );
