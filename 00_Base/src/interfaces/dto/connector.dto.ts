@@ -34,6 +34,7 @@ export const ConnectorSchemaWithoutParent = BaseSchema.extend({
   vendorErrorCode: z.string().nullable().optional(),
   termsAndConditionsUrl: z.string().nullable().optional(),
   tariffs: z.array(TariffSchema).nullable().optional(),
+  disableOCPI: z.boolean().default(false).nullable().optional(),
 });
 
 export const ConnectorSchema = ConnectorSchemaWithoutParent.extend({
