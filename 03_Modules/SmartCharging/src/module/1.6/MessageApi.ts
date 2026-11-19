@@ -39,12 +39,19 @@ export class SmartChargingOcpp16Api
     super(smartChargingModule, server, OCPPVersion.OCPP1_6, logger);
   }
 
-  @AsMessageEndpoint(OCPP1_6_CallAction.SetChargingProfile, OCPP1_6.SetChargingProfileRequestSchema)
+  @AsMessageEndpoint(
+    OCPP1_6_CallAction.SetChargingProfile,
+    OCPP1_6.SetChargingProfileRequestSchema,
+    {
+      correlationId: { type: 'string' },
+    },
+  )
   setChargingProfile(
     identifier: string[],
     request: OCPP1_6.SetChargingProfileRequest,
     callbackUrl?: string,
     tenantId: number = DEFAULT_TENANT_ID,
+    extraQueries?: Record<string, any>,
   ): Promise<IMessageConfirmation[]> {
     return Promise.all(
       identifier.map((id) =>
@@ -55,6 +62,7 @@ export class SmartChargingOcpp16Api
           OCPP1_6_CallAction.SetChargingProfile,
           request,
           callbackUrl,
+          extraQueries?.correlationId,
         ),
       ),
     );
@@ -63,12 +71,16 @@ export class SmartChargingOcpp16Api
   @AsMessageEndpoint(
     OCPP1_6_CallAction.ClearChargingProfile,
     OCPP1_6.ClearChargingProfileRequestSchema,
+    {
+      correlationId: { type: 'string' },
+    },
   )
   clearChargingProfile(
     identifier: string[],
     request: OCPP1_6.ClearChargingProfileRequest,
     callbackUrl?: string,
     tenantId: number = DEFAULT_TENANT_ID,
+    extraQueries?: Record<string, any>,
   ): Promise<IMessageConfirmation[]> {
     return Promise.all(
       identifier.map((id) =>
@@ -79,6 +91,7 @@ export class SmartChargingOcpp16Api
           OCPP1_6_CallAction.ClearChargingProfile,
           request,
           callbackUrl,
+          extraQueries?.correlationId,
         ),
       ),
     );
@@ -87,12 +100,16 @@ export class SmartChargingOcpp16Api
   @AsMessageEndpoint(
     OCPP1_6_CallAction.GetCompositeSchedule,
     OCPP1_6.GetCompositeScheduleRequestSchema,
+    {
+      correlationId: { type: 'string' },
+    },
   )
   getCompositeSchedule(
     identifier: string[],
     request: OCPP1_6.GetCompositeScheduleRequest,
     callbackUrl?: string,
     tenantId: number = DEFAULT_TENANT_ID,
+    extraQueries?: Record<string, any>,
   ): Promise<IMessageConfirmation[]> {
     return Promise.all(
       identifier.map((id) =>
@@ -103,6 +120,7 @@ export class SmartChargingOcpp16Api
           OCPP1_6_CallAction.GetCompositeSchedule,
           request,
           callbackUrl,
+          extraQueries?.correlationId,
         ),
       ),
     );
