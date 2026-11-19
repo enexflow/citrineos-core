@@ -521,9 +521,5 @@ export interface ITenantRepository extends CrudRepository<Tenant> {
 }
 
 export interface ITenantPartnerRepository extends CrudRepository<TenantPartner> {
-  getHubPartner(
-    tenantId: number,
-    countryCode: string,
-    partyIds: string[],
-  ): Promise<TenantPartner | undefined>;
+  hasRealTimeTokenAuthPartner(tenantId: number): Promise<boolean>;
 }

@@ -592,6 +592,10 @@ export class TransactionsModule extends AbstractModule {
         for (const meterValue of meterValues) {
           if (meterValue.sampledValue && meterValue.sampledValue.length > 0) {
             const meterValueEntity = OCPP1_6_Mapper.MeterValueMapper.fromMeterValueType(meterValue);
+            // Only SignedData values (Eichrecht): nothing usable to store
+            if (!meterValueEntity) {
+              continue;
+            }
             meterValueEntity.tenantId = tenantId;
             meterValueEntity.connectorId = connectorId;
             meterValueEntities.push(meterValueEntity);
@@ -740,38 +744,62 @@ export class TransactionsModule extends AbstractModule {
       return;
     }
 
-    const stopTransaction = await this._transactionEventRepository.createStopTransaction(
-      tenantId,
-      transaction.id,
-      stationId,
-      request.meterStop,
-      new Date(request.timestamp),
-      request.transactionData?.map((data) =>
-        OCPP1_6_Mapper.MeterValueMapper.fromMeterValueType(
-          data as OCPP1_6.MeterValuesRequest['meterValue'][0],
-        ),
-      ) || [],
-      request.reason || (request.idTag ? 'Remote' : 'Local'),
-      authorization?.id,
-    );
-
-    if (!stopTransaction) {
-      this._logger.error(
-        `Failed to create StopTransaction record for transaction ${request.transactionId}`,
-      );
-    }
-
-    if (transaction.startTransaction) {
-      transaction.totalKwh = (request.meterStop - transaction.startTransaction.meterStart) / 1000; // Convert from Wh to kWh
-    } else {
+    // A retried StopTransaction (StopTransactions.transactionDatabaseId is unique) must not fail or re-close.
+    if (!transaction.isActive) {
       this._logger.warn(
-        `StartTransaction record not found at station ${stationId} for transactionId ${request.transactionId}. 
-        Cannot calculate totalKwh.`,
+        `Received StopTransaction for already-ended transaction ${request.transactionId} on ${stationId}. Ignoring.`,
       );
+      return;
     }
-    transaction.isActive = false;
-    transaction.stoppedReason = request.reason;
-    transaction.endTime = request.timestamp;
-    await transaction.save();
+
+    // OCPP 1.6 §4.10: an omitted Reason SHOULD be assumed 'Local'.
+    const stoppedReason = request.reason ?? OCPP1_6.StopTransactionRequestReason.Local;
+    // Mapped one by one: an unparsable reading must cost only that reading, not the close.
+    const meterValues: MeterValueDto[] = [];
+    for (const data of request.transactionData ?? []) {
+      try {
+        const meterValue = OCPP1_6_Mapper.MeterValueMapper.fromMeterValueType(
+          data as OCPP1_6.MeterValuesRequest['meterValue'][0],
+        );
+        if (meterValue) {
+          meterValues.push(meterValue);
+        }
+      } catch (error) {
+        this._logger.error('Dropping unparsable StopTransaction transactionData reading', {
+          stationId,
+          transactionId: request.transactionId,
+          readingTimestamp: data.timestamp,
+          error,
+        });
+      }
+    }
+
+    // createStopTransaction closes the transaction atomically (isActive, endTime, totalKwh,
+    // stoppedReason), so OCPI builds the CDR from the final row. It drops failing readings
+    // itself, so an error here means the close itself failed.
+    try {
+      await this._transactionEventRepository.createStopTransaction(
+        tenantId,
+        transaction.id,
+        stationId,
+        request.meterStop,
+        new Date(request.timestamp),
+        meterValues,
+        stoppedReason,
+        authorization?.id,
+      );
+    } catch (error) {
+      // The CALLRESULT is already sent, so the station will not retry and a CallError would contradict
+      // it: log everything needed to close the transaction by hand instead of rethrowing.
+      this._logger.error('StopTransaction not stored, transaction left open', {
+        stationId,
+        transactionId: request.transactionId,
+        transactionDatabaseId: transaction.id,
+        meterStop: request.meterStop,
+        timestamp: request.timestamp,
+        reason: stoppedReason,
+        error,
+      });
+    }
   }
 }

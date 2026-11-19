@@ -38,7 +38,7 @@ export class SequelizeLocalAuthListRepository
     localListAuthorization?: CrudRepository<LocalListAuthorization>,
     sendLocalList?: CrudRepository<SendLocalList>,
   ) {
-    super(config, Authorization.MODEL_NAME, logger, sequelizeInstance);
+    super(config, LocalListVersion.MODEL_NAME, logger, sequelizeInstance);
     this.authorization = authorization
       ? authorization
       : new SequelizeAuthorizationRepository(config, logger);
@@ -112,13 +112,24 @@ export class SequelizeLocalAuthListRepository
           );
         }
       }
-      // No longer create IdTokenInfo, just use Authorization fields
-      const { id, ...authorizationFields } = auth;
+      // Copy explicit attributes: spreading a Sequelize instance copies its internals, not its columns
       const localListAuthorization = await this.localListAuthorization.create(
         tenantId,
         LocalListAuthorization.build({
-          ...authorizationFields,
-          authorizationId: id,
+          tenantId,
+          authorizationId: auth.id,
+          idToken: auth.idToken,
+          idTokenType: auth.idTokenType,
+          additionalInfo: auth.additionalInfo,
+          status: auth.status,
+          cacheExpiryDateTime: auth.cacheExpiryDateTime,
+          chargingPriority: auth.chargingPriority,
+          language1: auth.language1,
+          language2: auth.language2,
+          personalMessage: auth.personalMessage,
+          groupAuthorizationId: auth.groupAuthorizationId,
+          allowedConnectorTypes: auth.allowedConnectorTypes,
+          disallowedEvseIdPrefixes: auth.disallowedEvseIdPrefixes,
         }),
       );
       await SendLocalListAuthorization.create({
@@ -173,7 +184,10 @@ export class SequelizeLocalAuthListRepository
     stationId: string,
     correlationId: string,
   ): Promise<SendLocalList | undefined> {
-    return this.sendLocalList.readOnlyOneByQuery(tenantId, { where: { stationId, correlationId } });
+    return this.sendLocalList.readOnlyOneByQuery(tenantId, {
+      where: { stationId, correlationId },
+      include: [LocalListAuthorization],
+    });
   }
 
   async createOrUpdateLocalListVersionFromStationIdAndSendLocalList(

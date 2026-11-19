@@ -18,7 +18,8 @@ import { Logger } from 'tslog';
 import { OidcTokenProvider } from '../authorization/index.js';
 
 export interface RealTimeAuthorizationRequestBody {
-  tenantPartnerId: number;
+  tenantPartnerId?: number;
+  tenantId?: number;
   idToken: string;
   idTokenType: IdTokenEnumType;
   locationId?: string;
