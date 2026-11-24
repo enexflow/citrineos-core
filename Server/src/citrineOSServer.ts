@@ -70,6 +70,7 @@ import {
   initSwagger,
   isApiDocsExposed,
   LocalBypassAuthProvider,
+  LocationAuthorizer,
   MemoryCache,
   NetworkProfileFilter,
   OIDCAuthProvider,
@@ -119,6 +120,8 @@ export class CitrineOSServer {
   protected _smartChargingService!: ISmartCharging;
   protected _realTimeAuthorizer!: IAuthorizer;
   protected _unknownTokenOcpiAuthorizer!: UnknownTokenOcpiAuthorizer;
+  // enexflow fork (TECH-2463): badge location check, shared by EVDriver and Transactions.
+  protected _locationAuthorizer!: IAuthorizer;
 
   protected readonly appName: string;
 
@@ -196,6 +199,7 @@ export class CitrineOSServer {
     this.initSmartChargingService();
     this.initRealTimeAuthorizer();
     this.initUnknownTokenOcpiAuthorizer();
+    this.initLocationAuthorizer();
   }
 
   async initialize(): Promise<void> {
@@ -530,7 +534,7 @@ export class CitrineOSServer {
       this._repositoryStore.locationRepository,
       this._certificateAuthorityService,
       this._realTimeAuthorizer,
-      [],
+      [this._locationAuthorizer],
       this._idGenerator,
       this._unknownTokenOcpiAuthorizer,
     );
@@ -619,6 +623,7 @@ export class CitrineOSServer {
       this._repositoryStore.reservationRepository,
       this._repositoryStore.ocppMessageRepository,
       this._realTimeAuthorizer,
+      [this._locationAuthorizer],
     );
     await this.initHandlersAndAddModule(module);
     this.apis.push(
@@ -729,6 +734,14 @@ export class CitrineOSServer {
 
   protected initRealTimeAuthorizer() {
     this._realTimeAuthorizer = new RealTimeAuthorizer(
+      this._repositoryStore.locationRepository,
+      this._config,
+      this._logger,
+    );
+  }
+
+  protected initLocationAuthorizer() {
+    this._locationAuthorizer = new LocationAuthorizer(
       this._repositoryStore.locationRepository,
       this._config,
       this._logger,
