@@ -39,4 +39,6 @@ export const getStationIdFromIdentifier = (identifier: string): string => {
 export interface IWebsocketConnection {
   id: string;
   protocol: string;
+  // Unique per websocket, so an instance can tell whether it still owns the station's entry.
+  connectionId?: string;
 }

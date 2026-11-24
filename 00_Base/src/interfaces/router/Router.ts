@@ -22,6 +22,12 @@ export interface IMessageRouter extends IModule {
   deregisterConnection(tenantId: number, stationId: string): Promise<boolean>;
 
   /**
+   * Stop consuming this station's messages on this instance only, because another
+   * instance now holds its connection: no offline status, no queue deletion.
+   */
+  releaseConnection(tenantId: number, stationId: string): Promise<boolean>;
+
+  /**
    * Check if a charging station exists for a given tenant.
    *
    * @param tenantId The tenant ID.

@@ -65,6 +65,8 @@ export class RabbitMqReceiver extends AbstractMessageHandler {
   private _connectPromise?: Promise<amqplib.Channel>;
   /** Identifiers whose queues we are deleting ourselves; their consumer cancels are expected. */
   private _unsubscribing = new Set<string>();
+  /** Consumer tags per identifier, so {@link release} can stop them without deleting the shared queue. */
+  private _consumerTags = new Map<string, { channel: amqplib.Channel; consumerTag: string }[]>();
 
   constructor(
     config: SystemConfig,
@@ -235,7 +237,6 @@ export class RabbitMqReceiver extends AbstractMessageHandler {
 
   unsubscribe(identifier: string): Promise<boolean> {
     const cacheKey = `${RabbitMqReceiver.CACHE_PREFIX}${identifier}`;
-    const metadataKey = `${RabbitMqReceiver.METADATA_PREFIX}${identifier}`;
     this._unsubscribing.add(identifier);
     return this._cache
       .get<Array<string>>(cacheKey, CacheNamespace.Other, () => Array<string>)
@@ -257,29 +258,8 @@ export class RabbitMqReceiver extends AbstractMessageHandler {
               `Queue ${identifier} deleted with ${messageCount?.messageCount} messages remaining.`,
             );
           }
-          // Remove the cache entries after successfully deleting all queues
-          await this._cache.remove(cacheKey, CacheNamespace.Other);
-          await this._cache.remove(metadataKey, CacheNamespace.Other);
-
-          // Remove identifier from registry
-          const registry = await this._cache.get<Array<string>>(
-            RabbitMqReceiver.REGISTRY_KEY,
-            CacheNamespace.Other,
-            () => Array<string>,
-          );
-          if (registry) {
-            const updatedRegistry = registry.filter((id) => id !== identifier);
-            if (updatedRegistry.length === 0) {
-              await this._cache.remove(RabbitMqReceiver.REGISTRY_KEY, CacheNamespace.Other);
-            } else {
-              await this._cache.set(
-                RabbitMqReceiver.REGISTRY_KEY,
-                JSON.stringify(updatedRegistry),
-                CacheNamespace.Other,
-              );
-            }
-          }
-
+          this._consumerTags.delete(identifier);
+          await this._forgetSubscription(identifier);
           return true;
         } else {
           this._logger.warn(
@@ -289,6 +269,26 @@ export class RabbitMqReceiver extends AbstractMessageHandler {
         }
       })
       .finally(() => this._unsubscribing.delete(identifier));
+  }
+
+  async release(identifier: string): Promise<boolean> {
+    const consumers = this._consumerTags.get(identifier) ?? [];
+    this._consumerTags.delete(identifier);
+    this._unsubscribing.add(identifier);
+    try {
+      for (const { channel, consumerTag } of consumers) {
+        // Consumers of a replaced channel died with it.
+        if (channel === this._channel) {
+          await channel.cancel(consumerTag);
+        }
+      }
+      // Without its metadata, a reconnect will not re-subscribe this instance to the queue.
+      await this._forgetSubscription(identifier);
+      this._logger.info(`Released ${consumers.length} consumer(s) for ${identifier}.`);
+      return consumers.length > 0;
+    } finally {
+      this._unsubscribing.delete(identifier);
+    }
   }
 
   shutdown(): Promise<void> {
@@ -737,18 +737,48 @@ export class RabbitMqReceiver extends AbstractMessageHandler {
    * Starts a consumer on `queueName`, routing broker-side consumer cancellations
    * (null message) to {@link _onConsumerCancelled}.
    */
-  private _consume(
+  private async _consume(
     channel: amqplib.Channel,
     queueName: string,
     identifier: string,
   ): Promise<amqplib.Replies.Consume> {
-    return channel.consume(queueName, (msg) => {
+    const reply = await channel.consume(queueName, (msg) => {
       if (msg === null) {
         this._onConsumerCancelled(identifier, channel);
         return;
       }
       void this._onMessage(msg, channel);
     });
+    const live = (this._consumerTags.get(identifier) ?? []).filter((c) => c.channel === channel);
+    live.push({ channel, consumerTag: reply.consumerTag });
+    this._consumerTags.set(identifier, live);
+    return reply;
+  }
+
+  /** Drops the cached queue names, metadata and registry entry of an identifier. */
+  private async _forgetSubscription(identifier: string): Promise<void> {
+    await this._cache.remove(`${RabbitMqReceiver.CACHE_PREFIX}${identifier}`, CacheNamespace.Other);
+    await this._cache.remove(
+      `${RabbitMqReceiver.METADATA_PREFIX}${identifier}`,
+      CacheNamespace.Other,
+    );
+    const registry = await this._cache.get<Array<string>>(
+      RabbitMqReceiver.REGISTRY_KEY,
+      CacheNamespace.Other,
+      () => Array<string>,
+    );
+    if (registry) {
+      const updatedRegistry = registry.filter((id) => id !== identifier);
+      if (updatedRegistry.length === 0) {
+        await this._cache.remove(RabbitMqReceiver.REGISTRY_KEY, CacheNamespace.Other);
+      } else {
+        await this._cache.set(
+          RabbitMqReceiver.REGISTRY_KEY,
+          JSON.stringify(updatedRegistry),
+          CacheNamespace.Other,
+        );
+      }
+    }
   }
 
   /**

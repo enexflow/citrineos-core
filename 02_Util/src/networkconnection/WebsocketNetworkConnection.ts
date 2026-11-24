@@ -18,6 +18,7 @@ import {
   getStationIdFromIdentifier,
   getTenantIdFromIdentifier,
 } from '@citrineos/base';
+import { randomUUID } from 'crypto';
 import fs from 'fs';
 import * as http from 'http';
 import * as https from 'https';
@@ -29,6 +30,13 @@ import type { ErrorEvent, MessageEvent } from 'ws';
 import { WebSocket, WebSocketServer } from 'ws';
 import type { IUpgradeError } from './authenticator/errors/IUpgradeError.js';
 
+interface ConnectionState {
+  connectionId: string;
+  // Reset at each ping, set back by a pong or any message: still false at the next ping = dead peer.
+  isAlive: boolean;
+  pingTimer?: NodeJS.Timeout;
+}
+
 export class WebsocketNetworkConnection implements INetworkConnection {
   // Multiplier applied to a server's pingInterval to derive the TTL of its
   // Connections cache entries, so a crashed instance's entries expire on their
@@ -39,6 +47,7 @@ export class WebsocketNetworkConnection implements INetworkConnection {
   protected _config: SystemConfig;
   protected _logger: Logger<ILogObj>;
   private _identifierConnections: Map<string, WebSocket> = new Map();
+  private _connectionStates: WeakMap<WebSocket, ConnectionState> = new WeakMap();
   // websocketServers id as key and http server as value
   private _httpServersMap: Map<string, http.Server | https.Server>;
   private _authenticator: IAuthenticator;
@@ -83,10 +92,19 @@ export class WebsocketNetworkConnection implements INetworkConnection {
   sendMessage(identifier: string, message: string): Promise<void> {
     return new Promise<void>(async (resolve, reject) => {
       try {
-        const clientConnection = await this._cache.get(identifier, CacheNamespace.Connections);
+        const clientConnection = await this._getConnection(identifier);
         if (clientConnection) {
           const websocketConnection = this._identifierConnections.get(identifier);
-          if (websocketConnection && websocketConnection.readyState === WebSocket.OPEN) {
+          if (
+            websocketConnection &&
+            !this._isOwner(clientConnection, websocketConnection) &&
+            websocketConnection.readyState === WebSocket.OPEN
+          ) {
+            const errorMsg = `${identifier} reconnected to another instance, not sending on the replaced websocket`;
+            this._logger.warn(errorMsg);
+            websocketConnection.close(1000, 'Replaced by a new connection');
+            reject(new Error(errorMsg));
+          } else if (websocketConnection && websocketConnection.readyState === WebSocket.OPEN) {
             websocketConnection.send(message, (error) => {
               if (error) {
                 reject(error); // Reject the promise with the error
@@ -392,7 +410,10 @@ export class WebsocketNetworkConnection implements INetworkConnection {
         }
       }
 
+      const connectionId = randomUUID();
+      const previousWs = this._identifierConnections.get(identifier);
       this._identifierConnections.set(identifier, ws);
+      this._connectionStates.set(ws, { connectionId, isAlive: true });
       try {
         // Get IP address of client
         const ip =
@@ -409,6 +430,7 @@ export class WebsocketNetworkConnection implements INetworkConnection {
         const websocketConnection: IWebsocketConnection = {
           id: websocketServerConfig.id,
           protocol: ws.protocol,
+          connectionId,
         };
         let registered = await this._cache.set(
           identifier,
@@ -430,6 +452,12 @@ export class WebsocketNetworkConnection implements INetworkConnection {
 
         // Resume the WebSocket event emitter after events have been subscribed to
         ws.resume();
+
+        // The newer connection wins; the old one's close handler sees it no longer owns the station.
+        if (previousWs && previousWs !== ws) {
+          connLogger.info('Closing previous websocket replaced by the new connection', identifier);
+          previousWs.close(1000, 'Replaced by a new connection');
+        }
       } catch (error) {
         this._logger.fatal('Failed to subscribe to message broker for ', identifier);
         ws.close(1011, 'Failed to subscribe to message broker for ' + identifier);
@@ -457,17 +485,14 @@ export class WebsocketNetworkConnection implements INetworkConnection {
       ws.close(1011, event.message);
     };
     ws.onmessage = (event: MessageEvent) => {
+      this._markAlive(ws);
       this._onMessage(identifier, event.data.toString(), ws.protocol as OCPPVersionType);
     };
 
     ws.once('close', () => {
-      // Unregister client
-      this._logger.info('Connection closed for', identifier);
-      this._cache.remove(identifier, CacheNamespace.Connections);
-      this._identifierConnections.delete(identifier);
-      this._router.deregisterConnection(
-        getTenantIdFromIdentifier(identifier),
-        getStationIdFromIdentifier(identifier),
+      clearTimeout(this._connectionStates.get(ws)?.pingTimer);
+      this._onWebsocketClosed(identifier, ws).catch((error) =>
+        this._logger.error('Failed to clean up closed connection for', identifier, error),
       );
     });
 
@@ -476,29 +501,39 @@ export class WebsocketNetworkConnection implements INetworkConnection {
       ws.pong(message);
     });
 
-    ws.on('pong', async () => {
+    ws.on('pong', () => {
       this._logger.debug('Pong received for', identifier);
-      const clientConnection: string | null = await this._cache.get(
-        identifier,
-        CacheNamespace.Connections,
-      );
-
-      if (clientConnection) {
-        // Refresh TTL for connection and send ping to client in pingInterval seconds.
-        await this._cache.set(
-          identifier,
-          clientConnection,
-          CacheNamespace.Connections,
-          pingInterval * WebsocketNetworkConnection.CONNECTION_TTL_PING_INTERVAL_MULTIPLIER,
-        );
-        this._ping(identifier, ws, pingInterval);
-      } else {
-        this._logger.debug('Pong received for', identifier, 'but client is not alive');
-        ws.close(1011, 'Client is not alive');
-      }
+      this._markAlive(ws);
     });
 
     this._ping(identifier, ws, pingInterval);
+  }
+
+  /**
+   * Unregisters a closed websocket, but only to the extent it still holds the station:
+   * a late close of a replaced websocket must not tear down its successor.
+   */
+  private async _onWebsocketClosed(identifier: string, ws: WebSocket): Promise<void> {
+    if (this._identifierConnections.get(identifier) !== ws) {
+      this._logger.info('Replaced connection closed for', identifier);
+      return;
+    }
+    this._identifierConnections.delete(identifier);
+    const tenantId = getTenantIdFromIdentifier(identifier);
+    const stationId = getStationIdFromIdentifier(identifier);
+    const clientConnection = await this._getConnection(identifier);
+    if (this._identifierConnections.has(identifier)) {
+      this._logger.info('Replaced connection closed for', identifier);
+      return;
+    }
+    if (clientConnection && !this._isOwner(clientConnection, ws)) {
+      this._logger.info('Connection closed for', identifier, '- held by another instance now');
+      await this._router.releaseConnection(tenantId, stationId);
+      return;
+    }
+    this._logger.info('Connection closed for', identifier);
+    await this._cache.remove(identifier, CacheNamespace.Connections);
+    await this._router.deregisterConnection(tenantId, stationId);
   }
 
   /**
@@ -537,34 +572,78 @@ export class WebsocketNetworkConnection implements INetworkConnection {
   }
 
   /**
-   * Internal method to execute a ping operation on a WebSocket connection after a delay of 60 seconds.
+   * Pings the client every `pingInterval` seconds, and terminates it when the previous ping
+   * got neither a pong nor a message: a dead connection is closed within 2 x `pingInterval`.
+   * Also closes the websocket once the station's cache entry is gone or held by a newer connection.
    *
    * @param {string} identifier - The identifier of the client connection.
    * @param {WebSocket} ws - The WebSocket connection to ping.
-   * @param {number} pingInterval - The ping interval in milliseconds.
-   * @return {void} This function does not return anything.
+   * @param {number} pingInterval - The ping interval in seconds.
    */
-  private async _ping(identifier: string, ws: WebSocket, pingInterval: number): Promise<void> {
-    setTimeout(async () => {
-      const clientConnection: string | null = await this._cache.get(
-        identifier,
-        CacheNamespace.Connections,
-      );
-      if (clientConnection) {
-        this._logger.debug('Pinging client', identifier);
-        // Refresh TTL for connection and send ping to client
-        await this._cache.set(
-          identifier,
-          clientConnection,
-          CacheNamespace.Connections,
-          pingInterval * WebsocketNetworkConnection.CONNECTION_TTL_PING_INTERVAL_MULTIPLIER,
-        );
-        ws.ping();
-      } else {
-        ws.close(1011, 'Client is not alive');
+  private _ping(identifier: string, ws: WebSocket, pingInterval: number): void {
+    const state = this._connectionStates.get(ws);
+    if (!state) {
+      return;
+    }
+    state.pingTimer = setTimeout(() => {
+      if (ws.readyState !== WebSocket.OPEN) {
+        return;
       }
+      if (!state.isAlive) {
+        this._logger.warn(
+          `No pong nor message from ${identifier} since the last ping, terminating connection`,
+        );
+        ws.terminate();
+        return;
+      }
+      state.isAlive = false;
+      this._logger.debug('Pinging client', identifier);
+      ws.ping();
+      this._ping(identifier, ws, pingInterval);
+      this._refreshConnection(identifier, ws, pingInterval).catch((error) =>
+        this._logger.error('Failed to refresh connection for', identifier, error),
+      );
     }, pingInterval * 1000);
   }
+
+  private async _refreshConnection(
+    identifier: string,
+    ws: WebSocket,
+    pingInterval: number,
+  ): Promise<void> {
+    const clientConnection = await this._getConnection(identifier);
+    if (!clientConnection) {
+      ws.close(1011, 'Client is not alive');
+    } else if (!this._isOwner(clientConnection, ws)) {
+      this._logger.info(`${identifier} reconnected to another instance, closing this websocket`);
+      ws.close(1000, 'Replaced by a new connection');
+    } else {
+      await this._cache.set(
+        identifier,
+        JSON.stringify(clientConnection),
+        CacheNamespace.Connections,
+        pingInterval * WebsocketNetworkConnection.CONNECTION_TTL_PING_INTERVAL_MULTIPLIER,
+      );
+    }
+  }
+
+  private _markAlive(ws: WebSocket): void {
+    const state = this._connectionStates.get(ws);
+    if (state) {
+      state.isAlive = true;
+    }
+  }
+
+  private async _getConnection(identifier: string): Promise<IWebsocketConnection | null> {
+    const value: string | null = await this._cache.get(identifier, CacheNamespace.Connections);
+    return value ? (JSON.parse(value) as IWebsocketConnection) : null;
+  }
+
+  // An entry without connectionId was written by an instance running an older version.
+  private _isOwner(clientConnection: IWebsocketConnection, ws: WebSocket): boolean {
+    return clientConnection.connectionId === this._connectionStates.get(ws)?.connectionId;
+  }
+
   /**
    *
    * @param url Http upgrade request url used by charger

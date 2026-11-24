@@ -86,6 +86,7 @@ function buildMockHandler(): Mocked<IMessageHandler> {
   return {
     subscribe: vi.fn().mockResolvedValue(true),
     unsubscribe: vi.fn().mockResolvedValue(true),
+    release: vi.fn().mockResolvedValue(true),
     handle: vi.fn(),
     shutdown: vi.fn().mockResolvedValue(undefined),
     initConnection: vi.fn().mockResolvedValue(undefined),
@@ -334,6 +335,18 @@ describe('MessageRouterImpl', () => {
       const result = await router.deregisterConnection(TENANT_ID, STATION_ID);
 
       expect(handler.unsubscribe).toHaveBeenCalledWith(IDENTIFIER);
+      expect(result).toBe(true);
+    });
+  });
+
+  describe('releaseConnection', () => {
+    it('releases the handler without setting the station offline nor notifying webhooks', async () => {
+      const result = await router.releaseConnection(TENANT_ID, STATION_ID);
+
+      expect(handler.release).toHaveBeenCalledWith(IDENTIFIER);
+      expect(handler.unsubscribe).not.toHaveBeenCalled();
+      expect(dispatcher.deregister).not.toHaveBeenCalled();
+      expect(locationRepository.setChargingStationIsOnlineAndOCPPVersion).not.toHaveBeenCalled();
       expect(result).toBe(true);
     });
   });
