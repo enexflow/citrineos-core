@@ -53,11 +53,15 @@ export class RedisCache implements ICache {
     classConstructor?: (() => ClassConstructor<T>) | undefined,
   ): Promise<T | null> {
     namespace = namespace || 'default';
-    key = `${namespace}:${key}`;
+    const namespacedKey = `${namespace}:${key}`;
 
     return new Promise((resolve) => {
       // Create a Redis subscriber to listen for operations affecting the key
-      const subscriber = createClient();
+      const subscriber = this._client.duplicate();
+      // An unhandled 'error' event on a connected client would crash the process
+      subscriber.on('error', (error) => {
+        console.log('Redis subscriber error', error);
+      });
       let closed = false;
 
       // Cancel the fallback timer and close the subscriber, exactly once
@@ -72,23 +76,26 @@ export class RedisCache implements ICache {
 
       // Channel: Key-space, message: the name of the event, which is the command executed on the key
       subscriber
-        .subscribe(`__keyspace@0__:${key}`, (channel, message) => {
-          switch (message) {
-            case 'set':
-              resolve(this.get(key, namespace, classConstructor));
-              cleanup();
-              break;
-            case 'del':
-            case 'expire':
-              resolve(null);
-              cleanup();
-              break;
-            default:
-              // Do nothing
-              break;
-          }
-        })
-        .then()
+        .connect()
+        .then(() =>
+          // node-redis v4 invokes the listener as (message, channel)
+          subscriber.subscribe(`__keyspace@0__:${namespacedKey}`, (message) => {
+            switch (message) {
+              case 'set':
+                resolve(this.get(key, namespace, classConstructor));
+                cleanup();
+                break;
+              case 'del':
+              case 'expire':
+                resolve(null);
+                cleanup();
+                break;
+              default:
+                // Do nothing
+                break;
+            }
+          }),
+        )
         .catch((error) => {
           console.log('Error creating Redis subscriber', error);
         });

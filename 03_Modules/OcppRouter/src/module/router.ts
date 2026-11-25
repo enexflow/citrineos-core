@@ -572,9 +572,21 @@ export class MessageRouterImpl extends AbstractMessageRouter implements IMessage
     // notifications are disabled). The total budget must exceed one such wait.
     const maxInboundLockWaitSeconds = maxWaitSeconds * 5;
     const deadline = Date.now() + maxInboundLockWaitSeconds * 1000;
-    let successfullySet = false;
-    do {
-      // Subscribe before attempting to set so we don't miss the release notification.
+    const lockValue = `${action}:${messageId}`;
+    let successfullySet = await this._cache.setIfNotExist(
+      inboundCacheKey,
+      lockValue,
+      CacheNamespace.Transactions,
+      this._config.maxCallLengthSeconds,
+    );
+    while (!successfullySet && Date.now() < deadline) {
+      this._logger.debug(
+        'Duplicate inbound Call in progress, waiting for prior attempt before retrying',
+        identifier,
+        messageId,
+        action,
+      );
+      // Subscribe before retrying so we don't miss the release notification.
       const callOngoing = this._cache.onChange(
         inboundCacheKey,
         maxWaitSeconds,
@@ -582,22 +594,16 @@ export class MessageRouterImpl extends AbstractMessageRouter implements IMessage
       );
       successfullySet = await this._cache.setIfNotExist(
         inboundCacheKey,
-        `${action}:${messageId}`,
+        lockValue,
         CacheNamespace.Transactions,
         this._config.maxCallLengthSeconds,
       );
       if (successfullySet) {
-        // Lock acquired; the dangling subscription resolves on its own timeout.
+        // Lock acquired on retry; the subscription closes on its own timeout.
         break;
       }
-      this._logger.debug(
-        'Duplicate inbound Call in progress, waiting for prior attempt before retrying',
-        identifier,
-        messageId,
-        action,
-      );
       await callOngoing; // Station retried the same messageId before we responded
-    } while (Date.now() < deadline);
+    }
 
     if (!successfullySet) {
       throw new OcppError(messageId, ErrorCode.RpcFrameworkError, 'Call already in progress', {});
