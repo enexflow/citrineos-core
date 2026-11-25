@@ -22,6 +22,12 @@ describe('AuthorizationMapper', () => {
       );
     });
 
+    it('should map NotAtThisLocation to Invalid', () => {
+      expect(AuthorizationMapper.toIdTagInfoStatus(AuthorizationStatusEnum.NotAtThisLocation)).toBe(
+        OCPP1_6.AuthorizeResponseStatus.Invalid,
+      );
+    });
+
     it('should throw an error for unmapped statuses', () => {
       expect(() => AuthorizationMapper.toIdTagInfoStatus('ConcurrentTx')).toThrow(
         'Unknown IdTagInfoStatus status',
@@ -45,6 +51,14 @@ describe('AuthorizationMapper', () => {
       ).toBe(OCPP1_6.StartTransactionResponseStatus.Expired);
       expect(
         AuthorizationMapper.toStartTransactionResponseStatus(AuthorizationStatusEnum.Invalid),
+      ).toBe(OCPP1_6.StartTransactionResponseStatus.Invalid);
+    });
+
+    it('should map NotAtThisLocation to Invalid', () => {
+      expect(
+        AuthorizationMapper.toStartTransactionResponseStatus(
+          AuthorizationStatusEnum.NotAtThisLocation,
+        ),
       ).toBe(OCPP1_6.StartTransactionResponseStatus.Invalid);
     });
 

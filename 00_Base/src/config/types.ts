@@ -12,6 +12,15 @@ const OCPP2_0_1_CallActionSchema = z.nativeEnum(OCPP2_0_1_CallAction);
 
 const CallActionSchema = z.union([OCPP1_6_CallActionSchema, OCPP2_0_1_CallActionSchema]);
 
+/**
+ * enexflow fork: how the LocationAuthorizer treats tokens whose allowed locations do not cover
+ * the station's location. `off` skips the check, `log-only` logs the would-be refusal and accepts,
+ * `enforce` refuses.
+ */
+export const LocationAuthorizationModeSchema = z.enum(['off', 'log-only', 'enforce']);
+export const LocationAuthorizationMode = LocationAuthorizationModeSchema.enum;
+export type LocationAuthorizationModeType = z.infer<typeof LocationAuthorizationModeSchema>;
+
 export const oidcClientConfigSchema = z
   .object({
     tokenUrl: z.string(),
@@ -309,6 +318,7 @@ export const systemConfigInputSchema = z.object({
   rbacRulesFileName: z.string().default('rbac-rules.json').optional(),
   rbacRulesDir: z.string().optional(),
   realTimeAuthDefaultTimeoutSeconds: z.number().int().min(1).default(15).optional(),
+  locationAuthorizationMode: LocationAuthorizationModeSchema.default('log-only').optional(),
 });
 
 export type SystemConfigInput = z.infer<typeof systemConfigInputSchema>;
@@ -628,6 +638,7 @@ export const systemConfigSchema = z
     rbacRulesDir: z.string().optional(),
     oidcClient: oidcClientConfigSchema,
     realTimeAuthDefaultTimeoutSeconds: z.number().int().min(1).default(15),
+    locationAuthorizationMode: LocationAuthorizationModeSchema.default('log-only'),
   })
   .refine((obj) => obj.maxCachingSeconds >= obj.maxCallLengthSeconds, {
     message: 'maxCachingSeconds cannot be less than maxCallLengthSeconds',
