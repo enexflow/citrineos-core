@@ -16,6 +16,10 @@ export class AuthorizationMapper {
         return OCPP1_6.AuthorizeResponseStatus.Expired;
       case AuthorizationStatusEnum.Invalid:
         return OCPP1_6.AuthorizeResponseStatus.Invalid;
+      // enexflow fork (TECH-2463): OCPP 1.6 has no NotAtThisLocation; the LocationAuthorizer
+      // refusal is reported to the station as Invalid.
+      case AuthorizationStatusEnum.NotAtThisLocation:
+        return OCPP1_6.AuthorizeResponseStatus.Invalid;
       default:
         throw new Error('Unknown IdTagInfoStatus status');
     }
@@ -34,6 +38,9 @@ export class AuthorizationMapper {
       case AuthorizationStatusEnum.Expired:
         return OCPP1_6.StartTransactionResponseStatus.Expired;
       case AuthorizationStatusEnum.Invalid:
+        return OCPP1_6.StartTransactionResponseStatus.Invalid;
+      // enexflow fork (TECH-2463): see toIdTagInfoStatus.
+      case AuthorizationStatusEnum.NotAtThisLocation:
         return OCPP1_6.StartTransactionResponseStatus.Invalid;
       default:
         throw new Error('Unknown StartTransactionResponse status');

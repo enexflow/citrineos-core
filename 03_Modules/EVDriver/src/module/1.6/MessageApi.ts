@@ -35,12 +35,16 @@ export class EVDriverOcpp16Api
   @AsMessageEndpoint(
     OCPP1_6_CallAction.RemoteStartTransaction,
     OCPP1_6.RemoteStartTransactionRequestSchema,
+    {
+      correlationId: { type: 'string' },
+    },
   )
   async remoteStartTransaction(
     identifier: string[],
     request: OCPP1_6.RemoteStartTransactionRequest,
     callbackUrl?: string,
     tenantId: number = DEFAULT_TENANT_ID,
+    extraQueries?: Record<string, any>,
   ): Promise<IMessageConfirmation[]> {
     const results = identifier.map((id) =>
       this._module.sendCall(
@@ -50,6 +54,7 @@ export class EVDriverOcpp16Api
         OCPP1_6_CallAction.RemoteStartTransaction,
         request,
         callbackUrl,
+        extraQueries?.correlationId,
       ),
     );
     return Promise.all(results);
@@ -58,12 +63,16 @@ export class EVDriverOcpp16Api
   @AsMessageEndpoint(
     OCPP1_6_CallAction.RemoteStopTransaction,
     OCPP1_6.RemoteStopTransactionRequestSchema,
+    {
+      correlationId: { type: 'string' },
+    },
   )
   async remoteStopTransaction(
     identifier: string[],
     request: OCPP1_6.RemoteStopTransactionRequest,
     callbackUrl?: string,
     tenantId: number = DEFAULT_TENANT_ID,
+    extraQueries?: Record<string, any>,
   ): Promise<IMessageConfirmation[]> {
     const results = identifier.map((id) =>
       this._module.sendCall(
@@ -73,6 +82,7 @@ export class EVDriverOcpp16Api
         OCPP1_6_CallAction.RemoteStopTransaction,
         request,
         callbackUrl,
+        extraQueries?.correlationId,
       ),
     );
     return Promise.all(results);

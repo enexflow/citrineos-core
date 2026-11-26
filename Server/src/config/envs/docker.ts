@@ -315,5 +315,7 @@ export function createDockerConfig() {
     userPreferences: {
       // None by default
     },
+    // enexflow fork (TECH-2463): first rollout logs would-be refusals without enforcing them.
+    locationAuthorizationMode: 'log-only',
   });
 }

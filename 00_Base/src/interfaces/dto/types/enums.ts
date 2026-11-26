@@ -450,7 +450,13 @@ export const CdrDimensionTypeSchema = z.enum([
   'TIME',
 ]);
 
-export const TariffDimensionTypeSchema = z.enum(['ENERGY', 'FLAT', 'PARKING_TIME', 'TIME']);
+export const TariffDimensionTypeSchema = z.enum([
+  'ENERGY',
+  'FLAT',
+  'PARKING_TIME',
+  'SESSION_TIME',
+  'TIME',
+]);
 
 export const TokenTypeSchema = z.enum(['AD_HOC_USER', 'APP_USER', 'OTHER', 'RFID']);
 

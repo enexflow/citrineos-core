@@ -104,10 +104,17 @@ export {
   HUBJECT_DEFAULT_CLIENTID,
   HUBJECT_DEFAULT_CLIENTSECRET,
   HUBJECT_DEFAULT_TOKENURL,
+  LocationAuthorizationMode,
+  LocationAuthorizationModeSchema,
   RbacRulesSchema,
   systemConfigSchema,
 } from './config/types.js';
-export type { RbacRules, SystemConfig, WebsocketServerConfig } from './config/types.js';
+export type {
+  LocationAuthorizationModeType,
+  RbacRules,
+  SystemConfig,
+  WebsocketServerConfig,
+} from './config/types.js';
 
 // Utils
 

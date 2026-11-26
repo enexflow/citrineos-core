@@ -5,16 +5,20 @@ import {
   AuthorizationStatusEnum,
   DEFAULT_TENANT_ID,
   IAuthorizer,
+  IdTokenEnum,
   OCPP1_6,
   OCPP2_0_1,
+  SystemConfig,
 } from '@citrineos/base';
 import {
+  AuthorizationLocation,
   IAuthorizationRepository,
   ILocationRepository,
   IOCPPMessageRepository,
   IReservationRepository,
   ITransactionEventRepository,
 } from '@citrineos/data';
+import { LocationAuthorizer } from '@citrineos/util';
 import { TransactionService } from '../../src/module/TransactionService.js';
 import { anAuthorization } from '../providers/AuthorizationProvider.js';
 import { anIdToken } from '../providers/IdTokenProvider.js';
@@ -288,6 +292,91 @@ describe('TransactionService', () => {
       expect(response.idTagInfo.status).toBe(OCPP1_6.StartTransactionResponseStatus.ConcurrentTx);
       expect(response.idTagInfo.parentIdTag).toBeUndefined();
       expect(response.idTagInfo.expiryDate).toBeUndefined();
+    });
+  });
+
+  describe('LocationAuthorizer in the chain (TECH-2463)', () => {
+    const STATION_LOCATION_ID = 42;
+    let serviceWithLocationAuthorizer: TransactionService;
+
+    beforeEach(() => {
+      locationRepository.readChargingStationByStationId = vi
+        .fn()
+        .mockResolvedValue({ locationId: STATION_LOCATION_ID });
+      realTimeAuthorizer.authorize.mockImplementation(async (auth) => auth.status);
+      transactionEventRepository.readAllActiveTransactionsByAuthorizationId.mockResolvedValue([]);
+      serviceWithLocationAuthorizer = new TransactionService(
+        transactionEventRepository,
+        authorizationRepository,
+        locationRepository,
+        reservationRepository,
+        ocppMessageRepository,
+        realTimeAuthorizer,
+        [
+          new LocationAuthorizer(locationRepository, {
+            locationAuthorizationMode: 'enforce',
+          } as SystemConfig),
+        ],
+      );
+    });
+
+    const aBadgeWithoutLocation = () =>
+      anAuthorization((auth) => {
+        auth.idTokenType = IdTokenEnum.ISO14443;
+        auth.locations = [];
+      });
+
+    it('refuses a 1.6 StartTransaction with Invalid and transactionId 0', async () => {
+      const authorization = aBadgeWithoutLocation();
+      authorizationRepository.readAllByQuerystring.mockResolvedValue([authorization]);
+
+      const response = await serviceWithLocationAuthorizer.authorizeOcpp16IdToken(
+        aMessageContext(),
+        authorization.idToken,
+        1,
+      );
+
+      expect(response.idTagInfo.status).toBe(OCPP1_6.StartTransactionResponseStatus.Invalid);
+      expect(response.transactionId).toBe(0);
+    });
+
+    it('accepts a 1.6 StartTransaction at an allowed location', async () => {
+      const authorization = anAuthorization((auth) => {
+        auth.idTokenType = IdTokenEnum.ISO14443;
+        auth.locations = [{ locationId: STATION_LOCATION_ID } as AuthorizationLocation];
+      });
+      authorizationRepository.readAllByQuerystring.mockResolvedValue([authorization]);
+
+      const response = await serviceWithLocationAuthorizer.authorizeOcpp16IdToken(
+        aMessageContext(),
+        authorization.idToken,
+        1,
+      );
+
+      expect(response.idTagInfo.status).toBe(OCPP1_6.StartTransactionResponseStatus.Accepted);
+    });
+
+    it('refuses a 2.0.1 TransactionEvent Started with NotAtThisLocation', async () => {
+      const authorization = aBadgeWithoutLocation();
+      authorizationRepository.readAllByQuerystring.mockResolvedValue([authorization]);
+
+      const transactionEventRequest = aTransactionEventRequest((item) => {
+        item.idToken = {
+          idToken: authorization.idToken,
+          type: OCPP2_0_1.IdTokenEnumType.ISO14443,
+        };
+        item.eventType = OCPP2_0_1.TransactionEventEnumType.Started;
+        item.evse = undefined;
+      });
+      const response = await serviceWithLocationAuthorizer.authorizeOcpp201IdToken(
+        DEFAULT_TENANT_ID,
+        transactionEventRequest,
+        aMessageContext(),
+      );
+
+      expect(response.idTokenInfo?.status).toBe(
+        OCPP2_0_1.AuthorizationStatusEnumType.NotAtThisLocation,
+      );
     });
   });
 });
